@@ -1,5 +1,5 @@
 {
-  "data_coleta": "22/04/2026 19:23",
+  "data_coleta": "22/04/2026 16:59",
   "saldo_geral": 48051.34,
   "saldo_previsto": 48051.34,
   "contas": [
@@ -24,5 +24,5 @@
       "saldo": 109.4
     }
   ],
-  "receita_ytd": null
+  "receita_ytd": 171582.32
 }
