@@ -836,6 +836,7 @@ initTheme();
 
 let chartsInitialized = false;
 function initCharts() {
+  Object.values(Chart.instances).forEach(c => c.destroy());
   if (chartsInitialized) return;
   chartsInitialized = true;
   const gridColor = '#1a3155', tickColor = '#6b9ac4';
