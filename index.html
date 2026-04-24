@@ -584,30 +584,22 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
     <div id="page-geral" class="page active">
       <div class="gti-bar"></div>
       <div class="page-header">
-        <div><h2>Visão Geral</h2><p>Green Tech Innovation — Resumo executivo de April/2026</p></div>
+        <div><h2>Visão Geral</h2><p>Green Tech Innovation — Resumo executivo de Abril/2026</p></div>
         <div class="live-badge"><div class="live-dot"></div><span id="gti-badge-update">Atualizado 16/04/2026 às 18:19</span></div>
       </div>
-      <div class="alert-box">⚠️ Lançamentos de Fev/Mar ainda não baixados no caixa — Saldo previsto: <strong>R$ 48.051</strong> | Saldo realizado: <strong>R$ 48.051</strong></div>
+      <div class="alert-box" style="font-size:13px">⚠️ Lançamentos pendentes no caixa — previsto: <strong>R$ 145.095</strong> | realizado: <strong>R$ 48.051</strong></div>
       <div class="kpi-grid">
         <div class="kpi-card teal"><span class="kpi-icon">🏦</span><div class="kpi-label">Saldo Atual (Realizado)</div><div class="kpi-value" style="color:var(--teal)">R$ 48.051</div><div class="kpi-trend neutral">5 contas bancárias ativas</div></div>
         <div class="kpi-card green"><span class="kpi-icon">📈</span><div class="kpi-label">Receita 2026 (Competência)</div><div class="kpi-value" style="color:var(--gti-green)">R$ 171.582</div><div class="kpi-trend up">▲ Jan + Fev realizados</div></div>
         <div class="kpi-card blue"><span class="kpi-icon">✅</span><div class="kpi-label">Resultado Jan/2026</div><div class="kpi-value" style="color:var(--gti-light)">R$ 13.314</div><div class="kpi-trend up">Margem líquida: 17,9%</div></div>
-        <div class="kpi-card orange"><span class="kpi-icon">👥</span><div class="kpi-label">Clientes Ativos</div><div class="kpi-value">26</div><div class="kpi-trend neutral">141 contatos cadastrados</div></div>
+        <div class="kpi-card orange"><span class="kpi-icon">👥</span><div class="kpi-label">Clientes Ativos</div><div class="kpi-value">26</div><div class="kpi-trend neutral">26 ativos</div></div>
       </div>
       <div class="charts-grid">
         <div class="chart-card"><div class="chart-title">DRE Jan/2026 — Cascata de Resultado</div><div class="chart-subtitle">Do faturamento ao lucro líquido</div><canvas id="chartGeralCascata" height="230"></canvas></div>
         <div class="chart-card"><div class="chart-title">Segmentação da Carteira</div><div class="chart-subtitle">26 clientes por segmento</div><canvas id="chartGeralSegmentos" height="230"></canvas></div>
         <div class="chart-card span2"><div class="chart-title">Receita por Cliente — Fev/2026</div><div class="chart-subtitle">NFs emitidas — pendentes de baixa no caixa</div><canvas id="chartGeralClientes" height="110"></canvas></div>
       </div>
-      <div class="chart-card">
-        <div class="chart-title">Posição Bancária Atual</div><div class="chart-subtitle" style="margin-bottom:12px">Saldo por conta corrente — 15/04/2026</div>
-        <div class="bank-item"><div><div class="bank-name">🟠 Itaú Unibanco</div><div class="bank-type">Conta corrente</div></div><div class="bank-value" style="color:var(--gti-green)">R$ 55.717,83</div></div>
-        <div class="bank-item"><div><div class="bank-name">🔴 Santander</div><div class="bank-type">Conta corrente</div></div><div class="bank-value" style="color:var(--red)">R$ 9.282,68</div></div>
-        <div class="bank-item"><div><div class="bank-name">🟢 Banco do Nordeste</div><div class="bank-type">Conta corrente</div></div><div class="bank-value" style="color:var(--gti-green)">R$ 988,07</div></div>
-        <div class="bank-item"><div><div class="bank-name">🔵 Caixa Econômica Federal</div><div class="bank-type">Conta corrente</div></div><div class="bank-value" style="color:var(--gti-green)">R$ 518,72</div></div>
-        <div class="bank-item"><div><div class="bank-name">🟤 Sicoob</div><div class="bank-type">Conta corrente</div></div><div class="bank-value" style="color:var(--gti-green)">R$ 109,40</div></div>
-        <div class="bank-item" style="background:rgba(0,93,199,.12);border-color:rgba(0,93,199,.4)"><div><div class="bank-name" style="color:var(--gti-light);font-weight:700">SALDO CONSOLIDADO</div></div><div class="bank-value" style="color:var(--gti-light);font-size:18px">R$ 48.051,34</div></div>
-      </div>
+      
     </div>
 
     <!-- FINANCEIRO -->
