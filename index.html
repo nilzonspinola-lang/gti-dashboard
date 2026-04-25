@@ -765,6 +765,42 @@ function showPage(id,el){
   if(el) el.classList.add('active');
   closeSidebar();
 }
+function initMapa(){
+  if(window._mapaInit)return;window._mapaInit=true;
+  const map=L.map('mapaClientes').setView([-12.97,-38.50],11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:18}).addTo(map);
+  const cor={Condomínio:'#2EA3F2',Alimentação:'#f7a948',Saúde:'#7CDA24','Energia/Gás':'#a855f7',Indústria:'#f7484e',Hotelaria:'#38d9a9',Ambiental:'#38d9a9',Educação:'#005DC7',Outros:'#6b9ac4'};
+  [['COMPANHIA DE GÁS DA BAHIA','Energia/Gás',-12.985,-38.460,'—'],
+   ['COND. PEGASUS RESIDENCE','Condomínio',-13.005,-38.457,'—'],
+   ['CONDOMINIO BARRA','Condomínio',-13.013,-38.532,'R$ 27.336,50'],
+   ["CONDOMINIO D'AZUR",'Condomínio',-13.008,-38.529,'—'],
+   ['COND. SALVADOR SHOPPING','Condomínio',-12.999,-38.474,'—'],
+   ['Cond. Mansão Wildberger','Condomínio',-13.003,-38.515,'R$ 434,00'],
+   ['Cond. Porto Trapiche','Condomínio',-12.970,-38.510,'R$ 850,17'],
+   ['Cond. Reserva do Horto','Condomínio',-12.940,-38.422,'R$ 749,47'],
+   ['COND. SAO CONRADO OFFICES','Condomínio',-12.935,-38.390,'R$ 589,82'],
+   ['COND. SHOPPING DA BAHIA','Condomínio',-12.994,-38.479,'R$ 3.669,10'],
+   ['CONDOMINIO UPTOWN','Condomínio',-12.950,-38.410,'—'],
+   ['FES/BA','Outros',-12.267,-38.966,'—'],
+   ['FRIGORIFICO NICOLINI','Indústria',-29.168,-51.179,'—'],
+   ['Hospital Rio Grande','Saúde',-5.795,-35.211,'—'],
+   ['HOTEIS DESIGN S.A.','Hotelaria',-12.974,-38.511,'—'],
+   ['Leopoldo Ambiental','Ambiental',-12.920,-38.360,'—'],
+   ["Mc Donald's (Alphaville)",'Alimentação',-12.897,-38.320,'—'],
+   ["Mc Donald's (HiperPosto)",'Alimentação',-12.988,-38.445,'—'],
+   ['Mc Donalds (Aquárius)','Alimentação',-12.964,-38.428,'—'],
+   ['Mc Donalds (SDB-L1)','Alimentação',-12.995,-38.480,'—'],
+   ['Mc Donalds (SDB-L3)','Alimentação',-12.996,-38.481,'—'],
+   ['NACIONAL GAS BUTANO','Energia/Gás',-12.980,-38.460,'—'],
+   ['PRODAL SAUDE S/A','Saúde',-12.952,-38.457,'R$ 37.888,63'],
+   ['Villa Global Education','Educação',-12.990,-38.468,'—'],
+   ['Ch Quatro','Alimentação',-7.120,-34.845,'R$ 94,35']
+  ].forEach(c=>{
+    L.circleMarker([c[2],c[3]],{radius:8,color:cor[c[1]]||'#6b9ac4',fillColor:cor[c[1]]||'#6b9ac4',fillOpacity:.85,weight:2})
+    .bindPopup('<strong>'+c[0]+'</strong><br><em style="color:#aaa">'+c[1]+'</em>'+(c[4]!=='—'?'<br><b style="color:#7CDA24">'+c[4]+'</b>':''))
+    .addTo(map);
+  });
+}
 function showPageMobile(id,el){
   if(id==='mapa') setTimeout(initMapa, 50);
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
