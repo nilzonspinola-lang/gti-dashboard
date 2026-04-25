@@ -561,6 +561,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
       <div class="nav-item" onclick="showPage('lancamentos',this)"><span class="icon">📋</span> Lançamentos</div>
       <div class="nav-section">Análises</div>
       <div class="nav-item" onclick="showPage('fluxo',this)"><span class="icon">💧</span> Fluxo de Caixa</div>
+      <div class="nav-item" onclick="showPage('receitas',this)"><span class="icon">📈</span> Receitas</div>
       <div class="nav-item" onclick="showPage('despesas',this)"><span class="icon">📉</span> Despesas</div>
       <div class="nav-item" onclick="showPage('mapa',this)"><span class="icon">🗺️</span> Mapa</div>
     </div>
@@ -704,7 +705,33 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
       </div>
     </div>
 
-    <!-- DESPESAS -->
+    <!-- RECEITAS -->
+    <div id="page-receitas" class="page">
+      <div class="gti-bar"></div>
+      <div class="page-header">
+        <div><h2>Receitas</h2><p>Análise de faturamento — Fev/2026</p></div>
+        <div class="live-badge"><div class="live-dot"></div><span>Fev/2026</span></div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-card green"><span class="kpi-icon">💰</span><div class="kpi-label">Receita Total</div><div class="kpi-value" style="color:var(--gti-green)">R$ 71,6K</div><div class="kpi-trend up">Fev/2026</div></div>
+        <div class="kpi-card blue"><span class="kpi-icon">🏆</span><div class="kpi-label">Maior Cliente</div><div class="kpi-value" style="color:var(--gti-light)">R$ 37,9K</div><div class="kpi-trend neutral">PRODAL SAÚDE</div></div>
+        <div class="kpi-card orange"><span class="kpi-icon">🎯</span><div class="kpi-label">Ticket Médio</div><div class="kpi-value">R$ 8,9K</div><div class="kpi-trend neutral">8 clientes faturados</div></div>
+        <div class="kpi-card teal"><span class="kpi-icon">📄</span><div class="kpi-label">NFs Emitidas</div><div class="kpi-value" style="color:var(--teal)">11</div><div class="kpi-trend neutral">Fev/2026</div></div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card" style="grid-column:span 2">
+          <div class="chart-title">Receita por Cliente — Fev/2026</div>
+          <div class="chart-sub">Valor faturado por cliente ativo</div>
+          <canvas id="chartRecBarras"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Por Segmento</div>
+          <div class="chart-sub">Distribuição da receita</div>
+          <canvas id="chartRecSegmento"></canvas>
+        </div>
+      </div>
+    </div>
+<!-- DESPESAS -->
     <div id="page-despesas" class="page">
       <div class="gti-bar"></div>
       <div class="page-header"><div><h2>Despesas</h2><p>Análise de custos e despesas operacionais</p></div><div class="live-badge"><div class="live-dot"></div>Fonte: DRE Controlle</div></div>
@@ -933,6 +960,8 @@ function initCharts() {
   new Chart(document.getElementById('chartCliSegmento'),{type:'doughnut',data:{labels:['Condomínios (7)','Shopping Center (4)','Restaurante (5)','Saúde (2)','Ind./Alim. (2)','White Label (1)','Outros (5)'],datasets:[{data:[7,4,5,2,2,1,5],backgroundColor:[C.gB,C.teal,C.orange,C.gG,C.red,C.purple,C.gL],borderWidth:0,hoverOffset:8}]},options:{responsive:true,cutout:'60%',plugins:{legend:{position:'bottom',labels:{padding:8,boxWidth:10,font:{size:11},color:tickColor}}}}});
 
   new Chart(document.getElementById('chartCliReceita'),{type:'bar',data:{labels:['PRODAL SAÚDE','COND. BARRA','SHOP. BAHIA','Porto Trapiche','Res. Horto','São Conrado','M. Wildberger','Ch Quatro'],datasets:[{data:[37888.63,27336.50,3669.10,850.17,749.47,589.82,434.00,94.35],backgroundColor:[C.gG,C.gB,C.orange,C.purple,C.teal,C.gL,rgba(C.orange,.6),rgba(C.gG,.4)],borderRadius:4}]},options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'R$ '+ctx.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{font:{size:10},color:tickColor,maxRotation:35}}}}});
+  new Chart(document.getElementById('chartRecBarras'),{type:'bar',data:{labels:['PRODAL SAÚDE','COND. BARRA','SHOP. BAHIA','Porto Trapiche','Res. Horto','São Conrado','M. Wildberger','Ch Quatro'],datasets:[{label:'Receita Fev/2026',data:[37888.63,27336.50,3669.10,850.17,749.47,589.82,434.00,94.35],backgroundColor:[C.gG,C.gB,C.orange,C.purple,C.teal,C.gL,rgba(C.orange,.6),rgba(C.gG,.4)],borderRadius:4}]},options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>'R$ '+ctx.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{font:{size:10},color:tickColor,maxRotation:35}}}}});
+  new Chart(document.getElementById('chartRecSegmento'),{type:'doughnut',data:{labels:['Saúde (52,9%)','Condomínios (47%)','Alimentação (0,1%)'],datasets:[{data:[37888.63,33629.06,94.35],backgroundColor:[C.gG,C.gB,C.orange],borderWidth:0,hoverOffset:8}]},options:{responsive:true,cutout:'62%',plugins:{legend:{position:'bottom',labels:{padding:8,boxWidth:10,font:{size:11},color:tickColor}}}}});
 
   
 }
