@@ -1,0 +1,40 @@
+name: Atualiza Dashboard GTI
+
+on:
+  # Executa todo dia às 10:00 UTC = 07:00 BRT
+  schedule:
+    - cron: '0 10 * * *'
+  # Permite execução manual pela interface do GitHub
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # necessário para fazer push
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: pip install requests
+
+      - name: Atualizar dados do Dashboard
+        env:
+          CONTROLLE_TOKEN: ${{ secrets.CONTROLLE_TOKEN }}
+          # GITHUB_TOKEN e GITHUB_REPOSITORY são providos automaticamente
+        run: python update_dashboard.py
+
+      - name: Commit e Push (se houver mudanças)
+        run: |
+          git config user.name  "GTI Bot"
+          git config user.email "bot@gti-g.com"
+          git add index.html data.json
+          git diff --staged --quiet || git commit -m "chore: dados $(date +'%d/%m/%Y %H:%M BRT')"
+          git push
