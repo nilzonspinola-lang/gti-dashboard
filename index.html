@@ -549,7 +549,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
       <img src="https://gti-g.com/wp-content/uploads/2023/01/logomarca-gti.png" alt="GTI">
       <div class="tagline">Dashboard Gerencial</div>
       <div class="live-chip"><div class="live-dot"></div>Dados reais — Controlle.com</div>
-      <div class="last-update-stamp" id="gti-last-update"><span class="upd-icon">🕐</span> Atualizado 25/04/2026 às 07:52</div>
+      <div class="last-update-stamp" id="gti-last-update"><span class="upd-icon">🕐</span> Atualizado 27/04/2026 às 07:52</div>
     </div>
     <div class="nav">
       <div class="nav-section">Principal</div>
@@ -586,7 +586,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
       <div class="gti-bar"></div>
       <div class="page-header">
         <div><h2>Visão Geral</h2><p>Green Tech Innovation — Resumo executivo de Abril/2026</p></div>
-        <div class="live-badge"><div class="live-dot"></div><span id="gti-badge-update">Atualizado 25/04/2026 às 07:52</span></div>
+        <div class="live-badge"><div class="live-dot"></div><span id="gti-badge-update">Atualizado 27/04/2026 às 07:52</span></div>
       </div>
       <div class="alert-box" style="font-size:13px">⚠️ Lançamentos pendentes no caixa — previsto: <strong>R$ 145.095</strong> | realizado: <strong>R$ 48.051</strong></div>
       <div class="kpi-grid">
@@ -923,7 +923,7 @@ function initCharts() {
 
   new Chart(document.getElementById('chartFinMensal'),{type:'bar',data:{labels:meses,datasets:[{label:'Receita',data:[74538.55,97043.77,0,0,0,0,0,0,0,0,0,0],backgroundColor:rgba(C.gG,.55),borderRadius:4},{label:'Custos+Despesas',data:[58881.70,0,0,0,0,0,0,0,0,0,0,0],backgroundColor:rgba(C.red,.5),borderRadius:4},{label:'Resultado',data:[13314.15,97043.77,0,0,0,0,0,0,0,0,0,0],type:'line',borderColor:C.gL,borderWidth:2.5,pointRadius:4,fill:false,tension:.4,order:0}]},options:{responsive:true,plugins:{legend:{position:'top',labels:{color:tickColor}}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{color:tickColor}}}}});
 
-  new Chart(document.getElementById('chartContasBancos'),{type:'bar',data:{labels:['Itaú','BNB','Caixa','Sicoob','Santander'],datasets:[{data:[55717.83,988.07,518.72,109.40,-9282.68],backgroundColor:[rgba(C.orange,.8),rgba(C.gG,.7),rgba(C.gL,.7),rgba(C.purple,.7),rgba(C.red,.7)],borderRadius:5}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{color:tickColor}}}}});
+  new Chart(document.getElementById('chartContasBancos'),{type:'bar',data:{labels:['Itaú','BNB','Caixa','Sicoob','Santander'],datasets:[{data:[50376.68,2788.07,518.72,109.40,-1282.68],backgroundColor:[rgba(C.orange,.8),rgba(C.gG,.7),rgba(C.gL,.7),rgba(C.purple,.7),rgba(C.red,.7)],borderRadius:5}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{color:tickColor}}}}});
 
   new Chart(document.getElementById('chartContasCartoes'),{type:'bar',data:{labels:['Final 9661','Final 0099','Final 0319','Final 8868'],datasets:[{data:[19000,13000,12600,8400],backgroundColor:[C.gB,C.gG,C.orange,C.purple],borderRadius:4,datalabels:{anchor:'end',align:'top',formatter:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}}]},options:{scales:{y:{ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor},grid:{color:gridColor}},x:{grid:{display:false},ticks:{color:tickColor}}},plugins:{legend:{display:false}}}});
 
@@ -960,7 +960,7 @@ function initCharts() {
 
   new Chart(document.getElementById('chartFinMensal'),{type:'bar',data:{labels:meses,datasets:[{label:'Receita',data:[74538.55,97043.77,0,0,0,0,0,0,0,0,0,0],backgroundColor:rgba(C.gG,.55),borderRadius:4},{label:'Custos+Despesas',data:[58881.70,0,0,0,0,0,0,0,0,0,0,0],backgroundColor:rgba(C.red,.5),borderRadius:4},{label:'Resultado',data:[13314.15,97043.77,0,0,0,0,0,0,0,0,0,0],type:'line',borderColor:C.gL,borderWidth:2.5,pointRadius:4,fill:false,tension:.4,order:0}]},options:{responsive:true,plugins:{legend:{position:'top',labels:{color:tickColor}}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{color:tickColor}}}}});
 
-  new Chart(document.getElementById('chartContasBancos'),{type:'bar',data:{labels:['Itaú','BNB','Caixa','Sicoob','Santander'],datasets:[{data:[55717.83,988.07,518.72,109.40,-9282.68],backgroundColor:[rgba(C.orange,.8),rgba(C.gG,.7),rgba(C.gL,.7),rgba(C.purple,.7),rgba(C.red,.7)],borderRadius:5}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{color:tickColor}}}}});
+  new Chart(document.getElementById('chartContasBancos'),{type:'bar',data:{labels:['Itaú','BNB','Caixa','Sicoob','Santander'],datasets:[{data:[50376.68,2788.07,518.72,109.40,-1282.68],backgroundColor:[rgba(C.orange,.8),rgba(C.gG,.7),rgba(C.gL,.7),rgba(C.purple,.7),rgba(C.red,.7)],borderRadius:5}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{grid:{color:gridColor},ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}},x:{grid:{display:false},ticks:{color:tickColor}}}}});
 
   new Chart(document.getElementById('chartContasCartoes'),{type:'bar',data:{labels:['Final 9661','Final 0099','Final 0319','Final 8868'],datasets:[{data:[19000,13000,12600,8400],backgroundColor:[C.gB,C.gG,C.orange,C.purple],borderRadius:4,datalabels:{anchor:'end',align:'top',formatter:v=>'R$'+Math.round(v/1000)+'K',color:tickColor}}]},options:{scales:{y:{ticks:{callback:v=>'R$'+Math.round(v/1000)+'K',color:tickColor},grid:{color:gridColor}},x:{grid:{display:false},ticks:{color:tickColor}}},plugins:{legend:{display:false}}}});
 
