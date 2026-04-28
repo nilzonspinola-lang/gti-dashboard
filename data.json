@@ -1,11 +1,11 @@
 {
-  "data_coleta": "27/04/2026 13:01",
-  "saldo_geral": 52510.19,
-  "saldo_previsto": 52510.19,
+  "data_coleta": "28/04/2026 13:29",
+  "saldo_geral": 30696.04,
+  "saldo_previsto": 30696.04,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 50376.68
+      "saldo": 28562.53
     },
     {
       "nome": "Santander",
