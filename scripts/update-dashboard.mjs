@@ -1,83 +1,223 @@
-import{io}from'socket.io-client';
-const RF=process.env.CONTROLLE_REFRESH_TOKEN,GT=process.env.GH_TOKEN||process.env.GITHUB_TOKEN;
-const API='https://controlle-api-prod.controlle.com',OWN='nilzonspinola-lang',REPO='gti-dashboard',CID=105337,CUID='c2712324-36fe-44d1-a466-afa0cddc0fcb';
+/**
+ * GTI Dashboard — Atualização Diária Automática
+ * Roda via GitHub Actions: sem computador, sem custo.
+ */
 
-async function renovar(){
-  for(const ep of['/auth/refresh','/auth/refresh-token','/sessions/refresh','/users/refresh-token']){
-    try{const r=await fetch(API+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken:RF})});
-    if(r.ok){const d=await r.json(),t=d.accessToken||d.access_token||d.token;if(t){console.log('Token renovado via',ep);return t;}}}catch(e){}
-  }throw new Error('Falha ao renovar token');
+import { io } from 'socket.io-client';
+import { appendFileSync, writeFileSync } from 'fs';
+
+const REFRESH_TOKEN = process.env.CONTROLLE_REFRESH_TOKEN;
+const GH_TOKEN      = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+const REPO_OWNER    = 'nilzonspinola-lang';
+const REPO_NAME     = 'gti-dashboard';
+const API_BASE      = 'https://controlle-api-prod.controlle.com';
+const COMPANY_ID    = 105337;
+const COMPANY_UUID  = 'c2712324-36fe-44d1-a466-afa0cddc0fcb';
+
+// ── 1. RENOVAR TOKEN ──────────────────────────────────────────────────────────
+async function renovarToken() {
+  const endpoints = ['/auth/refresh', '/auth/refresh-token', '/sessions/refresh', '/users/refresh-token'];
+  for (const ep of endpoints) {
+    try {
+      const r = await fetch(API_BASE + ep, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: REFRESH_TOKEN }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        const token = data.accessToken || data.access_token || data.token;
+        if (token) {
+          console.log(`✅ Token renovado via ${ep}`);
+          // Captura novo refreshToken se a API fizer rotação de tokens
+          const novoRefresh = data.refreshToken || data.refresh_token;
+          if (novoRefresh && novoRefresh !== REFRESH_TOKEN) {
+            console.log('🔄 Novo refreshToken detectado — será salvo automaticamente no GitHub Secrets');
+            const outputFile = process.env.GITHUB_OUTPUT;
+            if (outputFile) {
+              appendFileSync(outputFile, `novo_refresh_token=${novoRefresh}\n`);
+            }
+            try { writeFileSync('/tmp/novo_refresh_token.txt', novoRefresh); } catch (_) {}
+          } else {
+            console.log('ℹ️  API não retornou novo refreshToken (sem rotação de tokens)');
+          }
+          return token;
+        }
+      }
+    } catch (e) { /* tenta próximo */ }
+  }
+  throw new Error('Não foi possível renovar o token.');
 }
 
-async function saldos(token){
-  return new Promise(res=>{
-    const data={saldo_total:null,contas:[]};
-    const s=io(API,{auth:{token},transports:['polling','websocket'],reconnection:false,timeout:15000,extraHeaders:{Authorization:'Bearer '+token}});
-    const fim=()=>{s.disconnect();res(data);};
-    const t=setTimeout(fim,20000);
-    s.on('connect',()=>{console.log('Socket conectado');s.emit('generalBalance',{companyId:CID});s.emit('getGeneralBalance',{companyId:CID,companyUuid:CUID});s.emit('getAccounts',{companyId:CID});});
-    s.on('connect_error',e=>{console.warn('Socket erro:',e.message);clearTimeout(t);fim();});
-    s.onAny((ev,...args)=>{
-      console.log('Evento:',ev,JSON.stringify(args).substring(0,150));
-      try{const d=args[0];if(!d)return;
-        const gb=d?.balances?.generalBalance??d?.generalBalance??d?.balance;
-        if(typeof gb==='number'&&data.saldo_total===null){data.saldo_total=gb/100;console.log('Saldo geral: R$',data.saldo_total);}
-        const cs=d?.accounts??d?.data??(Array.isArray(d)?d:null);
-        if(Array.isArray(cs)&&cs.length>0&&cs[0]?.descriptionAccount){
-          data.contas=cs.filter(c=>c.status===1&&!c.disabled).map(c=>({nome:c.descriptionAccount,saldo:(c.balance??0)/100}));
-          console.log('Contas:',data.contas.length);
-          if(data.saldo_total===null)data.saldo_total=data.contas.reduce((s,c)=>s+c.saldo,0);
-          clearTimeout(t);setTimeout(fim,1000);}
-      }catch(e){}});
+// ── 2. BUSCAR SALDOS VIA SOCKET.IO ────────────────────────────────────────────
+async function buscarSaldos(accessToken) {
+  return new Promise((resolve) => {
+    const saldos = { saldo_total: null, contas: [], raw_events: [] };
+    let resolvido = false;
+
+    const socket = io(API_BASE, {
+      auth: { token: accessToken },
+      transports: ['polling', 'websocket'],
+      reconnection: false,
+      timeout: 15000,
+      extraHeaders: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const finalizar = () => {
+      if (!resolvido) { resolvido = true; socket.disconnect(); resolve(saldos); }
+    };
+
+    const timer = setTimeout(finalizar, 20000);
+
+    socket.on('connect', () => {
+      console.log('🔌 Socket.IO conectado, id:', socket.id);
+      socket.emit('generalBalance', { companyId: COMPANY_ID });
+      socket.emit('getGeneralBalance', { companyId: COMPANY_ID, companyUuid: COMPANY_UUID });
+      socket.emit('dashboard', { companyId: COMPANY_ID });
+      socket.emit('getAccounts', { companyId: COMPANY_ID });
+    });
+
+    socket.on('connect_error', (err) => {
+      console.warn('⚠️  Socket.IO erro:', err.message);
+      clearTimeout(timer); finalizar();
+    });
+
+    socket.onAny((eventName, ...args) => {
+      const payload = JSON.stringify(args);
+      console.log(`📨 Evento "${eventName}":`, payload.substring(0, 200));
+      saldos.raw_events.push({ eventName, payload: payload.substring(0, 500) });
+
+      try {
+        const data = args[0];
+        if (!data) return;
+
+        const gb = data?.balances?.generalBalance ?? data?.generalBalance ?? data?.balance;
+        if (typeof gb === 'number' && saldos.saldo_total === null) {
+          saldos.saldo_total = gb / 100;
+          console.log(`💰 Saldo geral: R$ ${saldos.saldo_total.toFixed(2)}`);
+        }
+
+        const contas = data?.accounts ?? data?.data ?? (Array.isArray(data) ? data : null);
+        if (Array.isArray(contas) && contas.length > 0 && contas[0]?.descriptionAccount) {
+          saldos.contas = contas
+            .filter(c => c.status === 1 && !c.disabled)
+            .map(c => ({ nome: c.descriptionAccount, saldo: (c.balance ?? 0) / 100 }));
+          console.log(`🏦 Contas: ${saldos.contas.length}`);
+          if (saldos.saldo_total === null)
+            saldos.saldo_total = saldos.contas.reduce((s, c) => s + c.saldo, 0);
+          clearTimeout(timer);
+          setTimeout(finalizar, 1000);
+        }
+      } catch (e) { /* ignora */ }
+    });
   });
 }
 
-async function getHtml(){
-  const r=await fetch(`https://api.github.com/repos/${OWN}/${REPO}/contents/index.html`,{headers:{Authorization:'token '+GT,Accept:'application/vnd.github.v3+json'}});
-  const d=await r.json();
-  const bytes=Uint8Array.from(atob(d.content.replace(/\n/g,'')),c=>c.charCodeAt(0));
-  return{html:new TextDecoder('utf-8').decode(bytes),sha:d.sha};
+// ── 3. BUSCAR HTML DO GITHUB ──────────────────────────────────────────────────
+async function buscarHtml() {
+  const r = await fetch(
+    `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/index.html`,
+    { headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json' } }
+  );
+  const d = await r.json();
+  const bytes = Uint8Array.from(atob(d.content.replace(/\n/g, '')), c => c.charCodeAt(0));
+  return { html: new TextDecoder('utf-8').decode(bytes), sha: d.sha };
 }
 
-function update(html,sd){
-  const hoje=new Date(),dd=String(hoje.getUTCDate()).padStart(2,'0'),mm=String(hoje.getUTCMonth()+1).padStart(2,'0'),aaaa=hoje.getUTCFullYear();
-  const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],mn=meses[hoje.getUTCMonth()];
-  const d7=new Date(hoje);d7.setUTCDate(d7.getUTCDate()-6);const d7d=String(d7.getUTCDate()).padStart(2,'0'),d7m=meses[d7.getUTCMonth()];
-  let h=html;
-  h=h.replace(/Atualizado \d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/g,`Atualizado ${dd}/${mm}/${aaaa} às 07:52`);
-  h=h.replace(/Posi[çc][aã]o: \d{2}\/\d{2}\/\d{4}/g,`Posição: ${dd}/${mm}/${aaaa}`);
-  h=h.replace(/\d{1,2} a \d{1,2} \w{3}\/\d{4}/g,`${d7d} a ${dd} ${mn}/${aaaa}`);
-  h=h.replace(/\d{1,2}-\d{1,2}\/[a-z]{3}\/\d{4}/gi,`${d7d}-${dd}/${mn.toLowerCase()}/${aaaa}`);
-  if(sd.contas.length>=5){
-    const mp={itaú:0,ita:0,nordeste:1,bnb:1,caixa:2,sicoob:3,santander:4},vs=[0,0,0,0,0];
-    for(const c of sd.contas){const n=c.nome.toLowerCase();for(const[k,i]of Object.entries(mp))if(n.includes(k)){vs[i]=c.saldo;break;}}
-    const nd=vs.join(',');
-    h=h.replace(/(\[)([\-\d.]+,[\-\d.]+,[\-\d.]+,[\-\d.]+,[\-\d.]+)(\])/g,(m,a,d,b)=>{
-      const ns=d.split(',').map(Number);return ns.some(n=>Math.abs(n)>100&&Math.abs(n)<1e7)?a+nd+b:m;});
-    console.log('Grafico:',nd);}
+// ── 4. APLICAR ATUALIZAÇÕES ───────────────────────────────────────────────────
+function atualizarHtml(html, saldos) {
+  const hoje  = new Date();
+  const dd    = String(hoje.getUTCDate()).padStart(2, '0');
+  const mm    = String(hoje.getUTCMonth() + 1).padStart(2, '0');
+  const aaaa  = hoje.getUTCFullYear();
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const mesNome = meses[hoje.getUTCMonth()];
+  const d7    = new Date(hoje); d7.setUTCDate(d7.getUTCDate() - 6);
+  const d7dia = String(d7.getUTCDate()).padStart(2, '0');
+  const d7mes = meses[d7.getUTCMonth()];
+
+  let h = html;
+
+  const countTs = (h.match(/Atualizado \d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/g) || []).length;
+  h = h.replace(/Atualizado \d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/g, `Atualizado ${dd}/${mm}/${aaaa} às 07:52`);
+  console.log(`🕐 Timestamps atualizados: ${countTs}`);
+
+  h = h.replace(/Posi[çc][aã]o: \d{2}\/\d{2}\/\d{4}/g, `Posição: ${dd}/${mm}/${aaaa}`);
+
+  h = h.replace(/\d{1,2} a \d{1,2} \w{3}\/\d{4}/g, `${d7dia} a ${dd} ${mesNome}/${aaaa}`);
+  h = h.replace(/\d{1,2}-\d{1,2}\/[a-z]{3}\/\d{4}/gi, `${d7dia}-${dd}/${mesNome.toLowerCase()}/${aaaa}`);
+
+  if (saldos.contas.length >= 5) {
+    const mapa = { 'itaú':0, 'ita':0, 'nordeste':1, 'bnb':1, 'caixa':2, 'sicoob':3, 'santander':4 };
+    const vals = [0, 0, 0, 0, 0];
+    for (const conta of saldos.contas) {
+      const nome = conta.nome.toLowerCase();
+      for (const [key, idx] of Object.entries(mapa))
+        if (nome.includes(key)) { vals[idx] = conta.saldo; break; }
+    }
+    const novosDados = vals.join(',');
+    h = h.replace(/(\[)([\-\d.]+,[\-\d.]+,[\-\d.]+,[\-\d.]+,[\-\d.]+)(\])/g,
+      (match, pre, dados, post) => {
+        const nums = dados.split(',').map(Number);
+        return nums.some(n => Math.abs(n) > 100 && Math.abs(n) < 10_000_000)
+          ? `${pre}${novosDados}${post}` : match;
+      });
+    console.log(`💹 Dados do gráfico: [${novosDados}]`);
+  }
+
   return h;
 }
 
-async function push(html,sha){
-  const hoje=new Date(),dd=String(hoje.getUTCDate()).padStart(2,'0'),mm=String(hoje.getUTCMonth()+1).padStart(2,'0'),aaaa=hoje.getUTCFullYear();
-  const r=await fetch(`https://api.github.com/repos/${OWN}/${REPO}/contents/index.html`,{
-    method:'PUT',headers:{Authorization:'token '+GT,'Content-Type':'application/json',Accept:'application/vnd.github.v3+json'},
-    body:JSON.stringify({message:`chore: atualiza dashboard ${dd}/${mm}/${aaaa} 07:52`,content:btoa(unescape(encodeURIComponent(html))),sha,branch:'main'})});
-  const d=await r.json();
-  if(!r.ok)throw new Error('GitHub '+r.status+': '+JSON.stringify(d));
-  console.log('Publicado! Commit:',d.commit?.sha?.substring(0,8));
+// ── 5. PUBLICAR NO GITHUB ─────────────────────────────────────────────────────
+async function publicarHtml(html, sha) {
+  const hoje = new Date();
+  const dd = String(hoje.getUTCDate()).padStart(2,'0');
+  const mm = String(hoje.getUTCMonth()+1).padStart(2,'0');
+  const aaaa = hoje.getUTCFullYear();
+
+  const r = await fetch(
+    `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/index.html`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `token ${GH_TOKEN}`, 'Content-Type': 'application/json', Accept: 'application/vnd.github.v3+json' },
+      body: JSON.stringify({
+        message: `chore: atualiza dashboard ${dd}/${mm}/${aaaa} 07:52`,
+        content: btoa(unescape(encodeURIComponent(html))),
+        sha, branch: 'main',
+      }),
+    }
+  );
+  const d = await r.json();
+  if (!r.ok) throw new Error(`GitHub API ${r.status}: ${JSON.stringify(d)}`);
+  console.log(`✅ Publicado! Commit: ${d.commit?.sha?.substring(0,8)}`);
 }
 
-async function main(){
-  console.log('GTI Dashboard — iniciando...');
-  if(!RF)throw new Error('CONTROLLE_REFRESH_TOKEN nao definido');
-  if(!GT)throw new Error('GH_TOKEN nao definido');
-  let token;try{token=await renovar();}catch(e){console.warn('Sem token:',e.message);}
-  let sd={saldo_total:null,contas:[]};
-  if(token)try{sd=await saldos(token);}catch(e){console.warn('Sem saldos:',e.message);}
-  const{html,sha}=await getHtml();
-  const hu=update(html,sd);
-  await push(hu,sha);
-  console.log('Concluido!');
+// ── MAIN ──────────────────────────────────────────────────────────────────────
+async function main() {
+  console.log('🚀 GTI Dashboard — iniciando atualização...\n');
+  if (!REFRESH_TOKEN) throw new Error('CONTROLLE_REFRESH_TOKEN não definido');
+  if (!GH_TOKEN)      throw new Error('GH_TOKEN não definido');
+
+  let accessToken;
+  try { accessToken = await renovarToken(); }
+  catch (e) { console.warn('⚠️  Sem token Controlle:', e.message); }
+
+  let saldos = { saldo_total: null, contas: [] };
+  if (accessToken) {
+    try { saldos = await buscarSaldos(accessToken); }
+    catch (e) { console.warn('⚠️  Sem saldos:', e.message); }
+  }
+
+  console.log('\n📥 Buscando HTML atual...');
+  const { html, sha } = await buscarHtml();
+
+  console.log('✏️  Aplicando atualizações...');
+  const htmlAtualizado = atualizarHtml(html, saldos);
+
+  console.log('📤 Publicando...');
+  await publicarHtml(htmlAtualizado, sha);
+
+  console.log('\n🎉 Concluído!');
 }
-main().catch(e=>{console.error('Erro:',e.message);process.exit(1);});
+
+main().catch(e => { console.error('❌ Erro fatal:', e.message); process.exit(1); });
