@@ -2,65 +2,41 @@ name: Atualiza GTI Dashboard
 
 on:
   schedule:
-    # 07:52 BRT = 10:52 UTC (BRT = UTC-3)
-    - cron: '52 10 * * *'
-  workflow_dispatch: # permite rodar manualmente pelo GitHub
+    - cron: '0 10 * * *'   # 07:00 BRT (Brasília = UTC-3) todos os dias
+  workflow_dispatch:        # permite rodar manualmente pelo GitHub a qualquer momento
 
 jobs:
-  atualizar:
+  atualiza:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      secrets: write  # permite atualizar secrets via gh CLI
 
     steps:
-      - name: Checkout do repositório
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Instalar dependências
-        run: npm install socket.io-client
-
-      - name: Executar script de atualização
-        id: update
-        env:
-          CONTROLLE_REFRESH_TOKEN: ${{ secrets.CONTROLLE_REFRESH_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/update-dashboard.mjs
-
-      - name: Auto-renovar refreshToken se necessário
-        if: steps.update.outputs.novo_refresh_token != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Instala dependências
         run: |
-          NEW_TOKEN="${{ steps.update.outputs.novo_refresh_token }}"
-          if [ -n "$NEW_TOKEN" ]; then
-            echo "$NEW_TOKEN" | gh secret set CONTROLLE_REFRESH_TOKEN --repo ${{ github.repository }}
-            echo "✅ CONTROLLE_REFRESH_TOKEN renovado automaticamente! Token válido por mais 7 dias."
-          fi
-name: Atualiza GTI Dashboard
+          npm init -y
+          npm install playwright
+          npx playwright install chromium --with-deps
 
-on:
-  schedule:
-    - cron: '52 10 * * *'
-  workflow_dispatch:
-
-jobs:
-  atualizar:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: npm install socket.io-client
-      - run: node scripts/update-dashboard.mjs
+      - name: Atualiza saldos
         env:
-          CONTROLLE_REFRESH_TOKEN: ${{ secrets.CONTROLLE_REFRESH_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONTROLLE_EMAIL: ${{ secrets.CONTROLLE_EMAIL }}
+          CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
+        run: node update-dashboard.js
+
+      - name: Commit e push
+        run: |
+          git config user.name  "GTI Dashboard Bot"
+          git config user.email "nilzon.spinola@gti-g.com"
+          git add data.json index.html
+          git diff --staged --quiet && echo "Nenhuma alteração." || \
+          git commit -m "chore: atualiza saldos+timestamp $(TZ='America/Sao_Paulo' date +'%d/%m/%Y às %H:%M')"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
