@@ -1,5 +1,5 @@
-// GTI Dashboard — Atualização automática de saldos v8
-// Fix: usa Enter para submeter login (botão submit não existe no SPA do Controlle)
+// GTI Dashboard — Atualização automática de saldos v9
+// Fix: submete login via Enter (SPA do Controlle não usa button[type=submit])
 
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -17,7 +17,6 @@ const fs = require('fs');
   console.log('→ Abrindo Controlle login...');
   await page.goto('https://beta.controlle.com/login', { waitUntil: 'networkidle', timeout: 45000 });
 
-  // Aguarda o SPA renderizar o formulário (pode levar mais que 3s)
   console.log('→ Aguardando campo de e-mail aparecer...');
   await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30000 });
   console.log('→ Formulário encontrado, preenchendo credenciais...');
@@ -25,24 +24,17 @@ const fs = require('fs');
   await page.locator('input[type="email"], input[name="email"]').first().fill(process.env.CONTROLLE_EMAIL);
   await page.locator('input[type="password"]').first().fill(process.env.CONTROLLE_PASSWORD);
 
-  // Submete o formulário: tenta botão amplo, senão usa Enter
-  const btnLocator = page.locator('button[type="submit"], button[type="button"], button').first();
-  const btnVisible = await btnLocator.isVisible().catch(() => false);
-  if (btnVisible) {
-    console.log('→ Clicando no botão de login...');
-    await btnLocator.click();
-  } else {
-    console.log('→ Botão não visível, pressionando Enter...');
-    await page.locator('input[type="password"]').first().press('Enter');
-  }
+  // Submete via Enter — o SPA do Controlle não possui button[type=submit] padrão
+  console.log('→ Submetendo via Enter...');
+  await page.locator('input[type="password"]').first().press('Enter');
 
-  // Aguarda o redirect pós-login (até 15s)
+  // Aguarda o redirect pós-login (até 20s)
   try {
-    await page.waitForURL(url => !url.includes('login'), { timeout: 15000 });
+    await page.waitForURL(url => !url.includes('login'), { timeout: 20000 });
   } catch(e) {
     console.log('→ Timeout esperando redirect, URL atual:', page.url());
   }
-  await page.waitForTimeout(8000); // deixa o app processar o accessToken e setar cookies/localStorage
+  await page.waitForTimeout(8000);
 
   const urlAposLogin = page.url();
   console.log('→ URL após login:', urlAposLogin.replace(/accessToken=[^&\s]+/, 'accessToken=***'));
