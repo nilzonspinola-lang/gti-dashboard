@@ -1,5 +1,5 @@
-// GTI Dashboard — Atualização automática de saldos v7
-// Fix: aguarda SPA renderizar o formulário de login antes de interagir
+// GTI Dashboard — Atualização automática de saldos v8
+// Fix: usa Enter para submeter login (botão submit não existe no SPA do Controlle)
 
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -13,7 +13,7 @@ const fs = require('fs');
   });
   const page = await context.newPage();
 
-  // ── 1. LOGIN ─────────────────────────────────────────────────────────────────────────────────────
+  // ── 1. LOGIN ──────────────────────────────────────────────────────────────
   console.log('→ Abrindo Controlle login...');
   await page.goto('https://beta.controlle.com/login', { waitUntil: 'networkidle', timeout: 45000 });
 
@@ -25,8 +25,16 @@ const fs = require('fs');
   await page.locator('input[type="email"], input[name="email"]').first().fill(process.env.CONTROLLE_EMAIL);
   await page.locator('input[type="password"]').first().fill(process.env.CONTROLLE_PASSWORD);
 
-  await page.waitForSelector('button[type="submit"]', { timeout: 10000 });
-  await page.locator('button[type="submit"]').first().click();
+  // Submete o formulário: tenta botão amplo, senão usa Enter
+  const btnLocator = page.locator('button[type="submit"], button[type="button"], button').first();
+  const btnVisible = await btnLocator.isVisible().catch(() => false);
+  if (btnVisible) {
+    console.log('→ Clicando no botão de login...');
+    await btnLocator.click();
+  } else {
+    console.log('→ Botão não visível, pressionando Enter...');
+    await page.locator('input[type="password"]').first().press('Enter');
+  }
 
   // Aguarda o redirect pós-login (até 15s)
   try {
@@ -45,11 +53,10 @@ const fs = require('fs');
     process.exit(1);
   }
 
-  // ── 2. VERIFICAR AUTENTICAÇÃO NO STORAGE ──────────────────────────────────────────
+  // ── 2. VERIFICAR AUTENTICAÇÃO NO STORAGE ──────────────────────────────────
   const baseUrl = new URL(urlAposLogin).origin;
   console.log('→ Domínio autenticado:', baseUrl);
 
-  // Checar se há token armazenado
   const storageInfo = await page.evaluate(() => {
     const keys = Object.keys(localStorage);
     const tokenKeys = keys.filter(k => k.toLowerCase().includes('token') || k.toLowerCase().includes('auth') || k.toLowerCase().includes('user'));
@@ -57,18 +64,17 @@ const fs = require('fs');
   });
   console.log('→ localStorage:', JSON.stringify(storageInfo));
 
-  // ── 3. NAVEGAR PARA /contas ────────────────────────────────────────────────────────────────────────
+  // ── 3. NAVEGAR PARA /contas ───────────────────────────────────────────────
   const contasUrl = baseUrl + '/contas';
   console.log('→ Navegando para:', contasUrl);
 
   await page.goto(contasUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(10000); // aguarda SPA renderizar completamente
+  await page.waitForTimeout(10000);
 
   const urlContas = page.url();
   console.log('→ URL final:', urlContas);
 
   if (urlContas.includes('login')) {
-    // Diagnóstico extra antes de sair
     const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 300));
     console.log('→ Conteúdo da página:', bodySnippet);
     await browser.close();
@@ -76,10 +82,9 @@ const fs = require('fs');
     process.exit(1);
   }
 
-  // ── 4. EXTRAIR SALDOS ─────────────────────────────────────────────────────────────────────────────
+  // ── 4. EXTRAIR SALDOS ─────────────────────────────────────────────────────
   console.log('→ Extraindo saldos...');
 
-  // Log do conteúdo para diagnóstico
   const bodyPreview = await page.evaluate(() => document.body.innerText.substring(0, 500));
   console.log('→ Prévia da página /contas:', bodyPreview.replace(/\n/g, ' | '));
 
@@ -107,7 +112,7 @@ const fs = require('fs');
   await browser.close();
   console.log('→ Saldos extraídos:', JSON.stringify(saldos));
 
-  // ── 5. VALIDAÇÃO ────────────────────────────────────────────────────────────────────────────────────────
+  // ── 5. VALIDAÇÃO ──────────────────────────────────────────────────────────
   const nulls = Object.entries(saldos).filter(([, v]) => v === null).map(([k]) => k);
   if (nulls.length > 0) {
     console.error('ERRO: Saldos nulos para:', nulls.join(', '));
@@ -120,7 +125,7 @@ const fs = require('fs');
   }
   console.log('✓ Integridade OK — diferença R$', Math.abs(soma - saldos.saldoGeral).toFixed(2));
 
-  // ── 6. TIMESTAMP BRASÍLIA (UTC-3) ─────────────────────────────────────────────────────────
+  // ── 6. TIMESTAMP BRASÍLIA (UTC-3) ─────────────────────────────────────────
   const brasilia = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const dd   = String(brasilia.getUTCDate()).padStart(2, '0');
   const mm   = String(brasilia.getUTCMonth() + 1).padStart(2, '0');
@@ -129,7 +134,7 @@ const fs = require('fs');
   const min  = String(brasilia.getUTCMinutes()).padStart(2, '0');
   const dt   = `${dd}/${mm}/${aaaa} às ${hh}:${min}`;
 
-  // ── 7. data.json ───────────────────────────────────────────────────────────────────────────────────────────
+  // ── 7. data.json ──────────────────────────────────────────────────────────
   const dataJson = JSON.stringify({
     data_coleta: dt, saldo_geral: saldos.saldoGeral, receita_ytd: null,
     contas: [
@@ -143,7 +148,7 @@ const fs = require('fs');
   fs.writeFileSync('data.json', dataJson, 'utf8');
   console.log('✓ data.json atualizado');
 
-  // ── 8. index.html ──────────────────────────────────────────────────────────────────────────────────────
+  // ── 8. index.html ─────────────────────────────────────────────────────────
   let html = fs.readFileSync('index.html', 'utf8');
   const arr = [saldos['Itaú'], saldos['BNB'], saldos['Caixa'], saldos['Sicoob'], saldos['Santander']];
   const dataStr = 'data:[' + arr.map(v => Number(v).toFixed(2)).join(',') + ']';
