@@ -1,15 +1,15 @@
 {
-  "data_coleta": "01/05/2026 11:21",
-  "saldo_geral": 27786.29,
-  "saldo_previsto": 27786.29,
+  "data_coleta": "04/05/2026 às 09:06",
+  "saldo_geral": 22119.39,
+  "receita_ytd": null,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 25652.78
+      "saldo": 17985.88
     },
     {
       "nome": "Santander",
-      "saldo": -1282.68
+      "saldo": 717.32
     },
     {
       "nome": "Banco do Nordeste",
@@ -23,6 +23,5 @@
       "nome": "Sicoob",
       "saldo": 109.4
     }
-  ],
-  "receita_ytd": null
+  ]
 }
