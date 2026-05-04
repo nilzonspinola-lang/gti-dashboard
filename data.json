@@ -1,7 +1,7 @@
 {
   "data_coleta": "04/05/2026 às 10:21",
   "saldo_geral": 22119.39,
-  "receita_ytd": null,
+  "receita_ytd": 168920.32,
   "contas": [
     {
       "nome": "Itaú Unibanco",
@@ -23,5 +23,6 @@
       "nome": "Sicoob",
       "saldo": 109.4
     }
-  ]
+  ],
+  "resultado_ytd": 45874.45
 }
