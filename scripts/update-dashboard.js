@@ -112,12 +112,16 @@ function apiGet(baseUrl, endpoint, token, idEntity, params = {}) {
 }
 
 // ── 1. Login direto no Controlle Gateway ──────────────────────────────────────
+// Fluxo real do app:
+//   1a. POST /company/login  → {accessToken, refreshToken}
+//   1b. GET  /auth/entities  → array de entidades; usa .id da que tem current:true
 async function loginControlle(email, password) {
   console.log('→ Autenticando no Controlle Gateway...');
 
-  let result;
+  // ── 1a. Login ──
+  let loginResp;
   try {
-    result = await apiPost(CONTROLLE_GW, 'company/login', null, { email, password });
+    loginResp = await apiPost(CONTROLLE_GW, 'company/login', null, { email, password });
   } catch (err) {
     const msg = err.message || '';
     if (msg.includes('401') || msg.toLowerCase().includes('incorreto') || msg.toLowerCase().includes('invalid')) {
@@ -129,37 +133,47 @@ async function loginControlle(email, password) {
     throw new Error(`Login Controlle falhou: ${msg}`);
   }
 
-  // Log estrutural sem revelar valores sensíveis
-  function logEstrutura(obj, prefix) {
-    if (Array.isArray(obj)) {
-      console.log(`  ${prefix} → array[${obj.length}], primeiro item campos: [${Object.keys(obj[0] || {}).join(', ')}]`);
-    } else if (obj && typeof obj === 'object') {
-      console.log(`  ${prefix} → objeto, campos: [${Object.keys(obj).join(', ')}]`);
-    } else {
-      console.log(`  ${prefix} → ${typeof obj}`);
-    }
+  // Extrai accessToken (a resposta é {accessToken, refreshToken})
+  const accessToken = loginResp?.accessToken || loginResp?.access_token ||
+                      loginResp?.token       || loginResp?.idToken;
+
+  if (!accessToken) {
+    throw new Error(
+      'Login OK mas sem accessToken. Campos recebidos: ' +
+      Object.keys(loginResp || {}).join(', ')
+    );
   }
-  logEstrutura(result, 'Resposta login');
+  console.log('  ✓ accessToken obtido');
 
-  // Resposta pode ser array de empresas ou objeto único
-  const empresas = Array.isArray(result) ? result : (result.data ? (Array.isArray(result.data) ? result.data : [result.data]) : [result]);
-  const empresa  = empresas[0];
-
-  if (empresa && typeof empresa === 'object') {
-    console.log('  Campos da empresa[0]:', Object.keys(empresa).join(', '));
+  // ── 1b. Busca entidades para obter idEntity ──
+  console.log('→ Buscando entidades do usuário...');
+  let entities;
+  try {
+    // O app chama GET /auth/entities no gateway com o Bearer token
+    entities = await apiGet(CONTROLLE_GW, 'auth/entities', accessToken, null);
+  } catch (err) {
+    throw new Error(`Falha ao buscar entidades: ${err.message}`);
   }
 
-  // Tenta todos os campos possíveis para accessToken e idEntity
-  const accessToken = empresa?.accessToken || empresa?.access_token || empresa?.token    ||
-                      empresa?.idToken     || empresa?.jwt          || empresa?.authToken;
-  const idEntity    = empresa?.id          || empresa?.idEntity     || empresa?.id_entity ||
-                      empresa?.entityId    || empresa?.entity_id    || empresa?.companyId  ||
-                      empresa?.company_id  || empresa?.tenantId     || empresa?.tenant_id;
+  // A resposta é { entities: [...] } ou diretamente um array
+  const lista = entities?.entities ?? entities?.data ?? entities;
+  const arr   = Array.isArray(lista) ? lista : (lista ? [lista] : []);
 
-  if (!accessToken) throw new Error('Login OK mas sem accessToken. Campos disponíveis: ' + Object.keys(empresa || {}).join(', '));
-  if (!idEntity)    throw new Error('Login OK mas sem idEntity. Campos disponíveis: '    + Object.keys(empresa || {}).join(', '));
+  if (arr.length === 0) {
+    throw new Error('Nenhuma entidade retornada. Campos recebidos: ' + Object.keys(entities || {}).join(', '));
+  }
 
-  console.log(`✓ Login OK — idEntity: ${idEntity}`);
+  // Prefere a marcada como current; senão pega a primeira
+  const entidade = arr.find(e => e.current === true) || arr[0];
+  const idEntity = entidade?.id || entidade?.idEntity || entidade?.entityId;
+
+  if (!idEntity) {
+    throw new Error(
+      'Entidade sem id. Campos: ' + Object.keys(entidade || {}).join(', ')
+    );
+  }
+
+  console.log(`✓ Login OK — idEntity: ${idEntity} (${entidade?.name || entidade?.fantasyName || 'sem nome'})`);
   return { accessToken, idEntity };
 }
 
