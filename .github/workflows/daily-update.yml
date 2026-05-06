@@ -1,0 +1,67 @@
+name: GTI Dashboard - Atualização Diária
+
+on:
+  schedule:
+    # 07:00 Brasília (UTC-3) = 10:00 UTC. Roda todo dia.
+    - cron: '0 10 * * *'
+  workflow_dispatch: {}  # permite disparo manual pela aba Actions
+
+permissions:
+  contents: write  # necessário para commit/push do index.html e data.json
+
+concurrency:
+  group: gti-dashboard-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm ci || npm install
+
+      - name: Install Playwright Chromium
+        working-directory: scripts
+        run: npx playwright install --with-deps chromium
+
+      - name: Run dashboard update
+        working-directory: scripts
+        env:
+          CONTROLLE_EMAIL: ${{ secrets.CONTROLLE_EMAIL }}
+          CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
+          TZ: America/Sao_Paulo
+        run: node update-dashboard.js
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: scripts/debug-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Commit and push changes
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html data.json
+          if git diff --staged --quiet; then
+            echo "Nenhuma mudança detectada — pulando commit."
+            exit 0
+          fi
+          git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y')"
+          git push
