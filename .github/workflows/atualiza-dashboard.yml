@@ -1,9 +1,9 @@
 name: Atualiza GTI Dashboard
 
+# DESATIVADO em 2026-05-06 — substituído por daily-update.yml
+# Mantido apenas para disparo manual (workflow_dispatch).
 on:
-  schedule:
-    - cron: '0 10 * * *'   # 07:00 BRT (Brasília = UTC-3) todos os dias
-  workflow_dispatch:        # permite rodar manualmente pelo GitHub a qualquer momento
+  workflow_dispatch:
 
 jobs:
   atualiza:
