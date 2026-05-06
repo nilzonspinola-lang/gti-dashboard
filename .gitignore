@@ -4,3 +4,9 @@ scripts/playwright-report/
 scripts/test-results/
 .env
 .DS_Store
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
