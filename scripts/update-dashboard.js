@@ -196,7 +196,7 @@ async function extrairSaldos(page) {
     throw new Error(`Integridade falhou: soma=${sum.toFixed(2)} vs saldoGeral=${saldos.saldoGeral.toFixed(2)}`);
   }
 
-  console.log('✓ Saldos:', salds);
+  console.log('✓ Saldos:', saldos);
   return saldos;
 }
 
