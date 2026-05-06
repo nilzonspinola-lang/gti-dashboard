@@ -1,0 +1,6 @@
+scripts/node_modules/
+scripts/debug-*.png
+scripts/playwright-report/
+scripts/test-results/
+.env
+.DS_Store
