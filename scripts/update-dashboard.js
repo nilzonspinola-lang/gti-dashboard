@@ -129,17 +129,35 @@ async function loginControlle(email, password) {
     throw new Error(`Login Controlle falhou: ${msg}`);
   }
 
-  console.log('  Resposta login (preview):', JSON.stringify(result).substring(0, 300));
+  // Log estrutural sem revelar valores sensíveis
+  function logEstrutura(obj, prefix) {
+    if (Array.isArray(obj)) {
+      console.log(`  ${prefix} → array[${obj.length}], primeiro item campos: [${Object.keys(obj[0] || {}).join(', ')}]`);
+    } else if (obj && typeof obj === 'object') {
+      console.log(`  ${prefix} → objeto, campos: [${Object.keys(obj).join(', ')}]`);
+    } else {
+      console.log(`  ${prefix} → ${typeof obj}`);
+    }
+  }
+  logEstrutura(result, 'Resposta login');
 
   // Resposta pode ser array de empresas ou objeto único
   const empresas = Array.isArray(result) ? result : (result.data ? (Array.isArray(result.data) ? result.data : [result.data]) : [result]);
   const empresa  = empresas[0];
 
-  const accessToken = empresa?.accessToken || empresa?.access_token || empresa?.token || empresa?.idToken;
-  const idEntity    = empresa?.id          || empresa?.idEntity     || empresa?.id_entity;
+  if (empresa && typeof empresa === 'object') {
+    console.log('  Campos da empresa[0]:', Object.keys(empresa).join(', '));
+  }
 
-  if (!accessToken) throw new Error('Login OK mas sem accessToken. Resposta: ' + JSON.stringify(result).substring(0, 400));
-  if (!idEntity)    throw new Error('Login OK mas sem idEntity. Resposta: '    + JSON.stringify(result).substring(0, 400));
+  // Tenta todos os campos possíveis para accessToken e idEntity
+  const accessToken = empresa?.accessToken || empresa?.access_token || empresa?.token    ||
+                      empresa?.idToken     || empresa?.jwt          || empresa?.authToken;
+  const idEntity    = empresa?.id          || empresa?.idEntity     || empresa?.id_entity ||
+                      empresa?.entityId    || empresa?.entity_id    || empresa?.companyId  ||
+                      empresa?.company_id  || empresa?.tenantId     || empresa?.tenant_id;
+
+  if (!accessToken) throw new Error('Login OK mas sem accessToken. Campos disponíveis: ' + Object.keys(empresa || {}).join(', '));
+  if (!idEntity)    throw new Error('Login OK mas sem idEntity. Campos disponíveis: '    + Object.keys(empresa || {}).join(', '));
 
   console.log(`✓ Login OK — idEntity: ${idEntity}`);
   return { accessToken, idEntity };
