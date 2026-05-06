@@ -59,17 +59,50 @@
 
   // Entrar com Google
   window.entrarComGoogle = async () => {
-    const btn = document.getElementById('btnLogin');
+    const btn        = document.getElementById('btnLogin');
+    const errEl      = document.getElementById('loginError');
+    const btnOriginal = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" alt="Google"> Continuar com Google';
+
+    errEl.textContent = '';
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Entrando...';
+    btn.innerHTML = '<span class="spinner"></span> Aguarde...';
+
     try {
       await signInWithPopup(auth, provider);
+      // sucesso — onAuthStateChanged cuida do redirecionamento
     } catch (e) {
       btn.disabled = false;
-      btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"> Entrar com Google';
-      if (e.code !== 'auth/popup-closed-by-user') {
-        document.getElementById('loginError').textContent = 'Erro ao fazer login. Tente novamente.';
+      btn.innerHTML = btnOriginal;
+      console.error('[GTI Auth] código:', e.code, '| msg:', e.message);
+
+      // Mapa de erros → mensagens amigáveis
+      const erros = {
+        'auth/popup-blocked':
+          '🚫 Pop-up bloqueado pelo navegador. Permita pop-ups para este site e tente novamente.',
+        'auth/popup-closed-by-user':  '',   // usuário fechou — sem mensagem
+        'auth/cancelled-popup-request': '', // duplo clique — silencioso
+        'auth/unauthorized-domain':
+          '⚠️ Domínio não autorizado no Firebase. Adicione este domínio em Authentication → Settings → Authorized domains.',
+        'auth/network-request-failed':
+          '📡 Falha de conexão. Verifique sua internet e tente novamente.',
+        'auth/too-many-requests':
+          '⏳ Muitas tentativas. Aguarde alguns minutos e tente novamente.',
+        'auth/user-disabled':
+          '🔒 Sua conta foi desativada. Contate o administrador.',
+        'auth/operation-not-allowed':
+          '⚙️ Login com Google não está habilitado no Firebase Console.',
+        'auth/internal-error':
+          '🔧 Erro interno do servidor. Tente novamente em instantes.',
+      };
+
+      const msg = erros[e.code];
+      if (msg === undefined) {
+        // código desconhecido — mostra código para facilitar diagnóstico
+        errEl.textContent = `Erro (${e.code || 'desconhecido'}). Tente novamente.`;
+      } else if (msg) {
+        errEl.textContent = msg;
       }
+      // se msg === '' não exibe nada (ex: popup fechado pelo usuário)
     }
   };
 
