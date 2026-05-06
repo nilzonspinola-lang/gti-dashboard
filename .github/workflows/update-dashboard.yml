@@ -2,8 +2,7 @@ name: Atualiza Dashboard GTI
 
 on:
   # Executa todo dia às 10:00 UTC = 07:00 BRT
-  schedule:
-    - cron: '0 10 * * *'
+  # schedule removido (substituído por daily-update.yml)
   # Permite execução manual pela interface do GitHub
   workflow_dispatch:
 
