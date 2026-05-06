@@ -56,122 +56,81 @@ function nowBrazil() {
 async function loginControlle(page, email, password) {
   console.log('→ Abrindo página de login...');
 
-  // Tenta as duas URLs possíveis do Controlle
-  await page.goto('https://app.controlle.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(5000);
-
-  // Se redirecionou para o domínio raiz, aguarda lá
-  const urlAtual = page.url();
-  console.log('  URL após goto:', urlAtual);
-  if (urlAtual.includes('controlle.com/login')) {
-    await page.waitForTimeout(3000); // aguarda SPA carregar
-  }
-
-  // Screenshot de diagnóstico sempre
+  await page.goto('https://app.controlle.com/login', { waitUntil: 'networkidle', timeout: 60000 });
+  await page.waitForTimeout(3000);
+  console.log('  URL após carregamento:', page.url());
   await page.screenshot({ path: 'debug-login-inicio.png', fullPage: true }).catch(() => {});
 
-  // ── Campo de e-mail ──
-  const emailSelectors = [
-    'input[type="email"]',
-    'input[name="email"]',
-    'input[autocomplete="username"]',
-    'input[autocomplete="email"]',
-    'input[placeholder*="mail" i]',
-    'input[placeholder*="usuário" i]',
-    'input[placeholder*="usuario" i]',
-    'form input[type="text"]'
-  ];
-  let emailHandle = null;
-  for (const sel of emailSelectors) {
-    try {
-      emailHandle = await page.waitForSelector(sel, { state: 'visible', timeout: 4000 });
-      if (emailHandle) { console.log(`  • email selector: ${sel}`); break; }
-    } catch (_) {}
-  }
-  if (!emailHandle) {
-    await page.screenshot({ path: 'debug-login-no-email.png', fullPage: true }).catch(() => {});
-    throw new Error('Campo de email não encontrado. Verifique o screenshot debug-login-inicio.png');
-  }
+  // ── Aguarda campo email ──
+  const emailInput = await page.waitForSelector('input[type="email"], input[name="email"]', { state: 'visible', timeout: 15000 });
+  console.log('  • Campo email encontrado');
 
-  // ── Campo de senha ──
-  const passSelectors = [
-    'input[type="password"]',
-    'input[name="password"]',
-    'input[autocomplete="current-password"]',
-    'input[placeholder*="senha" i]'
-  ];
-  let passHandle = null;
-  for (const sel of passSelectors) {
-    try {
-      passHandle = await page.$(sel);
-      if (passHandle) { console.log(`  • password selector: ${sel}`); break; }
-    } catch (_) {}
-  }
-  if (!passHandle) {
-    await page.screenshot({ path: 'debug-login-no-pass.png', fullPage: true }).catch(() => {});
-    throw new Error('Campo de senha não encontrado.');
-  }
+  const passInput  = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 10000 });
+  console.log('  • Campo senha encontrado');
 
-  // ── Preenche credenciais ──
-  await emailHandle.click({ clickCount: 3 });
-  await emailHandle.fill(email);
-  await page.waitForTimeout(500);
-  await passHandle.click({ clickCount: 3 });
-  await passHandle.fill(password);
-  await page.waitForTimeout(500);
+  // ── Preenche simulando digitação humana (dispara eventos React/Vue) ──
+  await emailInput.click({ clickCount: 3 });
+  await emailInput.press('Control+a');
+  await emailInput.type(email, { delay: 60 });
+  await page.waitForTimeout(400);
 
-  console.log('  • Credenciais preenchidas, clicando em submit...');
+  await passInput.click({ clickCount: 3 });
+  await passInput.press('Control+a');
+  await passInput.type(password, { delay: 60 });
+  await page.waitForTimeout(400);
+
+  // Confirma que os campos têm os valores corretos
+  const emailVal = await emailInput.inputValue();
+  const passLen  = (await passInput.inputValue()).length;
+  console.log(`  • Email preenchido: ${emailVal} | Senha: ${passLen} chars`);
   await page.screenshot({ path: 'debug-login-preenchido.png', fullPage: true }).catch(() => {});
 
-  // ── Botão de submit — tenta cada candidato UMA vez ──
-  const submitCandidates = [
-    'button[type="submit"]',
-    'form button:not([type="button"])',
-    'button:has-text("Entrar")',
-    'button:has-text("ENTRAR")',
-    'button:has-text("Login")',
-    'button:has-text("Acessar")',
-    'input[type="submit"]'
-  ];
-  let clicked = false;
-  for (const sel of submitCandidates) {
-    try {
-      const btn = await page.$(sel);
-      if (btn) {
-        console.log(`  • submit selector: ${sel}`);
-        await btn.click();
-        clicked = true;
-        break;
-      }
-    } catch (_) {}
-  }
-  if (!clicked) {
-    console.log('  • Nenhum botão encontrado, tentando Enter...');
-    await passHandle.press('Enter');
+  // ── Submete via botão E também via Enter como fallback ──
+  const btnEntrar = await page.$('button[type="submit"], button:has-text("Entrar")');
+  if (btnEntrar) {
+    console.log('  • Clicando botão Entrar...');
+    // Aguarda request de rede após o clique (sinal de que o formulário foi enviado)
+    await Promise.all([
+      page.waitForResponse(
+        r => r.url().includes('controlle') && r.request().method() !== 'GET',
+        { timeout: 15000 }
+      ).catch(() => console.log('  ⚠ Sem request POST detectado — continuando...')),
+      btnEntrar.click()
+    ]);
+  } else {
+    console.log('  • Botão não encontrado — submetendo via Enter...');
+    await passInput.press('Enter');
   }
 
-  // ── Aguarda sair da tela de login (aceita qualquer domínio controlle) ──
-  console.log('  • Aguardando redirecionamento pós-login...');
+  // ── Aguarda navegar para fora do /login ──
+  console.log('  • Aguardando navegação pós-login...');
   try {
     await page.waitForURL(
-      u => !u.toString().match(/controlle\.com\/login/),
-      { timeout: 35000 }
+      u => !u.toString().includes('/login'),
+      { timeout: 40000 }
     );
-  } catch (e) {
-    await page.screenshot({ path: 'debug-login-failed.png', fullPage: true }).catch(() => {});
-    const urlFinal = page.url();
-    // Verifica se há mensagem de erro visível na página
-    const errMsg = await page.evaluate(() => {
-      const el = document.querySelector('.error, .alert, [class*="error"], [class*="alert"], [class*="Error"]');
-      return el ? el.innerText.trim() : null;
-    }).catch(() => null);
-    throw new Error(
-      `Login falhou (URL: ${urlFinal})${errMsg ? ` — Mensagem: "${errMsg}"` : ''}\n` +
-      `Verifique se CONTROLLE_EMAIL e CONTROLLE_PASSWORD estão corretos nos Secrets do GitHub.`
-    );
+  } catch (_) {
+    // Última chance: aguarda mais 5s e testa novamente
+    await page.waitForTimeout(5000);
+    if (page.url().includes('/login')) {
+      await page.screenshot({ path: 'debug-login-failed.png', fullPage: true }).catch(() => {});
+      // Captura qualquer texto de erro na página
+      const errMsg = await page.evaluate(() => {
+        const sels = ['[class*="error"]','[class*="alert"]','[class*="toast"]','[class*="mensagem"]','.notification'];
+        for (const s of sels) {
+          const el = document.querySelector(s);
+          if (el && el.innerText.trim()) return el.innerText.trim();
+        }
+        return null;
+      }).catch(() => null);
+      throw new Error(
+        `Login falhou — URL final: ${page.url()}` +
+        (errMsg ? `\nMensagem na tela: "${errMsg}"` : '\nSem mensagem de erro visível — verifique CONTROLLE_EMAIL e CONTROLLE_PASSWORD nos Secrets.')
+      );
+    }
   }
 
-  console.log('✓ Login OK. URL atual:', page.url());
+  console.log('✓ Login OK! URL:', page.url());
 }
 
 // ---------------- Extrair saldos ----------------
