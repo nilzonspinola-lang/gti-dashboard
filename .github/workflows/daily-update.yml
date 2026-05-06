@@ -16,40 +16,24 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Install dependencies
-        working-directory: scripts
-        run: npm ci || npm install
+          node-version: '22'
 
-      - name: Install Playwright Chromium
-        working-directory: scripts
-        run: npx playwright install --with-deps chromium
-
-      - name: Run dashboard update
+      - name: Run dashboard update (via API REST)
         working-directory: scripts
         env:
-          CONTROLLE_EMAIL: ${{ secrets.CONTROLLE_EMAIL }}
+          CONTROLLE_EMAIL:    ${{ secrets.CONTROLLE_EMAIL }}
           CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
           TZ: America/Sao_Paulo
         run: node update-dashboard.js
-
-      - name: Upload debug artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshots
-          path: scripts/debug-*.png
-          if-no-files-found: ignore
-          retention-days: 7
 
       - name: Commit and push changes
         run: |
@@ -60,5 +44,5 @@ jobs:
             echo "Nenhuma mudança detectada — pulando commit."
             exit 0
           fi
-          git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y')"
+          git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
           git push
