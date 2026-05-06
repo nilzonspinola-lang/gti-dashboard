@@ -2,36 +2,31 @@
  * GTI Dashboard - Atualização diária via API REST do Controlle
  *
  * Fluxo:
- * 1. Autentica no Firebase REST API com CONTROLLE_EMAIL / CONTROLLE_PASSWORD
- * 2. Usa o idToken Firebase para chamar a API do Controlle
- * 3. POST /company/login → obtém idEntity e tokens da empresa
- * 4. GET report/v1/dashboard/balances → saldos das contas bancárias
- * 5. GET transaction/v1/accounts → saldos individuais por conta
- * 6. DRE via report/v1/dre ou plan-account/v1/dreGroups → receita e resultado
- * 7. Atualiza index.html e data.json
+ * 1. POST /company/login no Gateway → email + senha → retorna accessToken + idEntity
+ * 2. GET report/v1/dashboard/balances → saldos das contas bancárias
+ * 3. GET transaction/v1/accounts → fallback individual por conta
+ * 4. DRE via múltiplos endpoints → receita e resultado YTD
+ * 5. Atualiza index.html e data.json
  */
 
 const https = require('https');
 const fs    = require('fs').promises;
 const path  = require('path');
 
-// ── Configuração ─────────────────────────────────────────────────────────────
+// ── Configuração ──────────────────────────────────────────────────────────────
+const CONTROLLE_API = 'https://controlle-api-prod.controlle.com';
+const CONTROLLE_GW  = 'https://controlle-gateway-prod.controlle.com';
 
-const FIREBASE_API_KEY = 'AIzaSyA32FVG1UBmebN6ukQiSartUY-iCyJ-Nfw';
-const CONTROLLE_API    = 'https://controlle-api-prod.controlle.com';
-const CONTROLLE_GW     = 'https://controlle-gateway-prod.controlle.com';
-
-// ── Helpers de formatação BR ─────────────────────────────────────────────────
-
+// ── Helpers de formatação BR ──────────────────────────────────────────────────
 function parseBR(s) {
-  if (!s) return null;
+  if (s == null) return null;
   return parseFloat(String(s).replace(/R\$\s*/, '').replace(/\./g, '').replace(',', '.').trim());
 }
 
 function fmtFull(v) {
-  const abs = Math.abs(v).toFixed(2);
-  const [ip, dec] = abs.split('.');
   const sign = v < 0 ? '-' : '';
+  const abs  = Math.abs(v).toFixed(2);
+  const [ip, dec] = abs.split('.');
   return sign + 'R$ ' + ip.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + dec;
 }
 
@@ -46,7 +41,7 @@ function fmtMargem(res, rec) {
 }
 
 function nowBrazil() {
-  const a = new Date();
+  const a    = new Date();
   const dd   = String(a.getDate()).padStart(2, '0');
   const mm   = String(a.getMonth() + 1).padStart(2, '0');
   const aaaa = a.getFullYear();
@@ -60,26 +55,20 @@ function nowBrazil() {
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
-
 function httpRequest(options, body = null) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode}: ${JSON.stringify(parsed)}`));
-          } else {
-            resolve(parsed);
-          }
-        } catch (e) {
-          if (res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 500)}`));
-          } else {
-            resolve(data);
-          }
+        let parsed;
+        try   { parsed = JSON.parse(data); }
+        catch { parsed = data; }
+        if (res.statusCode >= 400) {
+          const msg = (parsed && parsed.message) ? parsed.message : JSON.stringify(parsed).substring(0, 300);
+          reject(new Error(`HTTP ${res.statusCode}: ${msg}`));
+        } else {
+          resolve(parsed);
         }
       });
     });
@@ -89,129 +78,76 @@ function httpRequest(options, body = null) {
   });
 }
 
-function apiGet(baseUrl, path, token, idEntity, params = {}) {
-  const url = new URL(baseUrl + '/' + path);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const options = {
-    hostname: url.hostname,
-    path: url.pathname + url.search,
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...(idEntity ? { 'id_entity': String(idEntity) } : {})
-    }
-  };
-  return httpRequest(options);
-}
-
-function apiPost(baseUrl, path, token, body, extraHeaders = {}) {
-  const url = new URL(baseUrl + '/' + path);
+function apiPost(baseUrl, endpoint, token, body, extraHeaders = {}) {
+  const url     = new URL(baseUrl + '/' + endpoint.replace(/^\//, ''));
   const bodyStr = JSON.stringify(body);
-  const options = {
+  return httpRequest({
     hostname: url.hostname,
-    path: url.pathname,
-    method: 'POST',
+    path:     url.pathname,
+    method:   'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      'Content-Type':   'application/json',
+      'Accept':         'application/json',
       'Content-Length': Buffer.byteLength(bodyStr),
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...extraHeaders
     }
-  };
-  return httpRequest(options, bodyStr);
+  }, bodyStr);
 }
 
-// ── 1. Autenticação Firebase ──────────────────────────────────────────────────
-
-async function autenticarFirebase(email, password) {
-  console.log('→ Autenticando no Firebase...');
-  const url  = new URL(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`);
-  const body = JSON.stringify({ email, password, returnSecureToken: true });
-  const options = {
+function apiGet(baseUrl, endpoint, token, idEntity, params = {}) {
+  const url = new URL(baseUrl + '/' + endpoint.replace(/^\//, ''));
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  return httpRequest({
     hostname: url.hostname,
-    path: url.pathname + url.search,
-    method: 'POST',
+    path:     url.pathname + url.search,
+    method:   'GET',
     headers: {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(body)
+      'Accept':       'application/json',
+      Authorization:  `Bearer ${token}`,
+      ...(idEntity ? { id_entity: String(idEntity) } : {})
     }
-  };
+  });
+}
+
+// ── 1. Login direto no Controlle Gateway ──────────────────────────────────────
+async function loginControlle(email, password) {
+  console.log('→ Autenticando no Controlle Gateway...');
 
   let result;
   try {
-    result = await httpRequest(options, body);
+    result = await apiPost(CONTROLLE_GW, 'company/login', null, { email, password });
   } catch (err) {
     const msg = err.message || '';
-    if (msg.includes('INVALID_PASSWORD') || msg.includes('EMAIL_NOT_FOUND')) {
-      throw new Error('Credenciais inválidas — verifique CONTROLLE_EMAIL e CONTROLLE_PASSWORD nos Secrets do GitHub.');
+    if (msg.includes('401') || msg.toLowerCase().includes('incorreto') || msg.toLowerCase().includes('invalid')) {
+      throw new Error(
+        'Credenciais inválidas — verifique CONTROLLE_EMAIL e CONTROLLE_PASSWORD nos Secrets do GitHub.\n' +
+        `Detalhe: ${msg}`
+      );
     }
-    if (msg.includes('TOO_MANY_ATTEMPTS')) {
-      throw new Error('Muitas tentativas de login — conta temporariamente bloqueada. Aguarde e tente novamente.');
-    }
-    throw new Error(`Falha no login Firebase: ${msg}`);
+    throw new Error(`Login Controlle falhou: ${msg}`);
   }
 
-  if (!result.idToken) {
-    throw new Error('Firebase não retornou idToken. Resposta: ' + JSON.stringify(result).substring(0, 300));
-  }
+  console.log('  Resposta login (preview):', JSON.stringify(result).substring(0, 300));
 
-  console.log('✓ Firebase OK — uid:', result.localId);
-  return { idToken: result.idToken, refreshToken: result.refreshToken };
+  // Resposta pode ser array de empresas ou objeto único
+  const empresas = Array.isArray(result) ? result : (result.data ? (Array.isArray(result.data) ? result.data : [result.data]) : [result]);
+  const empresa  = empresas[0];
+
+  const accessToken = empresa?.accessToken || empresa?.access_token || empresa?.token || empresa?.idToken;
+  const idEntity    = empresa?.id          || empresa?.idEntity     || empresa?.id_entity;
+
+  if (!accessToken) throw new Error('Login OK mas sem accessToken. Resposta: ' + JSON.stringify(result).substring(0, 400));
+  if (!idEntity)    throw new Error('Login OK mas sem idEntity. Resposta: '    + JSON.stringify(result).substring(0, 400));
+
+  console.log(`✓ Login OK — idEntity: ${idEntity}`);
+  return { accessToken, idEntity };
 }
 
-// ── 2. Login no Controlle (obtém idEntity) ────────────────────────────────────
-
-async function loginControlle(idToken) {
-  console.log('→ Fazendo login no Controlle...');
-
-  let result;
-  try {
-    result = await apiPost(CONTROLLE_GW, 'company/login', idToken, {});
-  } catch (err) {
-    throw new Error(`Login Controlle falhou: ${err.message}`);
-  }
-
-  // A resposta pode ser objeto direto ou array de empresas
-  let entity;
-  if (Array.isArray(result)) {
-    entity = result[0];
-  } else if (result && result.data) {
-    entity = Array.isArray(result.data) ? result.data[0] : result.data;
-  } else {
-    entity = result;
-  }
-
-  const idEntity = entity?.id || entity?.idEntity || entity?.id_entity;
-  if (!idEntity) {
-    throw new Error('Não foi possível obter idEntity. Resposta: ' + JSON.stringify(result).substring(0, 500));
-  }
-
-  console.log('✓ Controlle OK — idEntity:', idEntity);
-  return { idEntity, token: entity?.accessToken || idToken };
-}
-
-// ── 3. Buscar saldos das contas ───────────────────────────────────────────────
-
+// ── 2. Buscar saldos ──────────────────────────────────────────────────────────
 async function buscarSaldos(token, idEntity) {
-  console.log('→ Buscando saldos em report/v1/dashboard/balances...');
-
-  let result;
-  try {
-    result = await apiGet(CONTROLLE_API, 'report/v1/dashboard/balances', token, idEntity);
-  } catch (err) {
-    throw new Error(`Falha ao buscar saldos: ${err.message}`);
-  }
-
-  console.log('  Resposta balances (preview):', JSON.stringify(result).substring(0, 400));
-
-  // A resposta pode ter results[] ou ser um array direto
-  const items = result?.results || result?.data || result;
-  if (!Array.isArray(items) && typeof items !== 'object') {
-    throw new Error('Formato inesperado de saldos: ' + JSON.stringify(result).substring(0, 300));
-  }
+  console.log('→ Buscando saldos...');
 
   const bankMap = {
     'Itaú':      ['itau', 'itaú', 'unibanco'],
@@ -223,151 +159,142 @@ async function buscarSaldos(token, idEntity) {
 
   const saldos = { 'Itaú': null, 'Santander': null, 'BNB': null, 'Caixa': null, 'Sicoob': null, saldoGeral: null };
 
-  const arr = Array.isArray(items) ? items : Object.values(items);
-  let totalCalculado = 0;
-
-  for (const item of arr) {
-    const nome = (item.name || item.nome || item.description || item.ds_name || '').toLowerCase();
-    const saldo = typeof item.balance === 'number' ? item.balance
-                : typeof item.saldo  === 'number' ? item.saldo
-                : parseBR(item.balance || item.saldo || '0') || 0;
-
-    if (nome.includes('geral') || item.type === 'TOTAL') {
-      saldos.saldoGeral = saldo;
-      continue;
-    }
-
-    for (const [banco, keywords] of Object.entries(bankMap)) {
-      if (keywords.some(k => nome.includes(k))) {
-        saldos[banco] = saldo;
-        totalCalculado += saldo;
-        break;
+  function classificarBanco(nomeRaw, valor) {
+    const nome = (nomeRaw || '').toLowerCase();
+    for (const [banco, kws] of Object.entries(bankMap)) {
+      if (kws.some(k => nome.includes(k))) {
+        if (saldos[banco] === null) saldos[banco] = valor;
+        return true;
       }
     }
+    return false;
   }
 
-  if (saldos.saldoGeral === null) {
-    saldos.saldoGeral = Math.round(totalCalculado * 100) / 100;
-  }
-
-  // Fallback: se algum banco não foi encontrado nos balances, tenta /transaction/v1/accounts
-  const banksMissing = Object.entries(saldos).filter(([k, v]) => k !== 'saldoGeral' && v === null);
-  if (banksMissing.length > 0) {
-    console.log('  ⚠ Alguns bancos não encontrados em balances, tentando /transaction/v1/accounts...');
+  // Tenta endpoint de balances
+  for (const ep of ['report/v1/dashboard/balances', 'report/v1/managerDashboard/balances']) {
     try {
-      const acctResult = await apiGet(CONTROLLE_API, 'transaction/v1/accounts', token, idEntity, { limit: 100 });
-      const accts = acctResult?.results || acctResult?.data || acctResult || [];
-      for (const item of (Array.isArray(accts) ? accts : [])) {
-        const nome = (item.name || item.nome || item.description || '').toLowerCase();
-        const saldo = typeof item.balance === 'number' ? item.balance
-                    : parseBR(item.balance || item.saldo || '0') || 0;
-        for (const [banco, keywords] of Object.entries(bankMap)) {
-          if (saldos[banco] === null && keywords.some(k => nome.includes(k))) {
-            saldos[banco] = saldo;
-            break;
-          }
+      const result = await apiGet(CONTROLLE_API, ep, token, idEntity);
+      console.log(`  ${ep} →`, JSON.stringify(result).substring(0, 300));
+      const items = result?.results ?? result?.data ?? result;
+      const arr   = Array.isArray(items) ? items : Object.values(typeof items === 'object' && items !== null ? items : {});
+      for (const item of arr) {
+        const nome   = item.name || item.nome || item.description || item.ds_name || '';
+        const saldo  = typeof item.balance === 'number' ? item.balance
+                     : typeof item.saldo   === 'number' ? item.saldo
+                     : parseBR(item.balance ?? item.saldo ?? '') ?? 0;
+        if (nome.toLowerCase().includes('geral') || item.type === 'TOTAL') {
+          if (saldos.saldoGeral === null) saldos.saldoGeral = saldo;
+        } else {
+          classificarBanco(nome, saldo);
         }
       }
+      if (Object.values(saldos).some(v => v !== null)) break;
     } catch (e) {
-      console.log('  ⚠ Falha em /transaction/v1/accounts:', e.message);
+      console.log(`  ⚠ ${ep}: ${e.message.substring(0, 120)}`);
     }
   }
 
-  // Preenche zeros para bancos ainda não encontrados
-  for (const banco of Object.keys(bankMap)) {
-    if (saldos[banco] === null) saldos[banco] = 0;
+  // Fallback: busca contas individuais
+  const faltando = Object.entries(saldos).filter(([k, v]) => k !== 'saldoGeral' && v === null);
+  if (faltando.length > 0) {
+    console.log('  Tentando fallback em transaction/v1/accounts...');
+    try {
+      const r    = await apiGet(CONTROLLE_API, 'transaction/v1/accounts', token, idEntity, { limit: 100, status: 1 });
+      const arr  = r?.results ?? r?.data ?? r ?? [];
+      for (const item of (Array.isArray(arr) ? arr : [])) {
+        const nome  = item.name || item.nome || item.description || '';
+        const saldo = typeof item.balance === 'number' ? item.balance : parseBR(String(item.balance ?? '')) ?? 0;
+        classificarBanco(nome, saldo);
+      }
+    } catch (e) {
+      console.log(`  ⚠ fallback accounts: ${e.message.substring(0, 120)}`);
+    }
   }
 
-  console.log('✓ Saldos:', saldos);
+  // Garante que nenhum banco fique null
+  for (const banco of Object.keys(bankMap)) {
+    if (saldos[banco] === null) { saldos[banco] = 0; console.log(`  ⚠ ${banco} não encontrado — usando 0`); }
+  }
+  if (saldos.saldoGeral === null) {
+    saldos.saldoGeral = Object.entries(saldos).filter(([k]) => k !== 'saldoGeral').reduce((s, [, v]) => s + v, 0);
+  }
+
+  console.log('✓ Saldos:', JSON.stringify(saldos));
   return saldos;
 }
 
-// ── 4. Buscar DRE ─────────────────────────────────────────────────────────────
-
+// ── 3. Buscar DRE ─────────────────────────────────────────────────────────────
 async function buscarDRE(token, idEntity) {
   console.log('→ Buscando DRE...');
-
-  const ano = new Date().getFullYear();
+  const ano       = new Date().getFullYear();
   const startDate = `${ano}-01-01`;
   const endDate   = `${ano}-12-31`;
 
-  // Tenta endpoint do DRE
   const endpoints = [
-    { base: CONTROLLE_API, path: 'report/v1/dre',                  params: { startDate, endDate } },
-    { base: CONTROLLE_API, path: 'report/v1/dashboard/dre',         params: { startDate, endDate } },
-    { base: CONTROLLE_API, path: 'plan-account/v1/dreGroups',        params: { availableDRE: 'true' } },
-    { base: CONTROLLE_API, path: 'report/v1/cashflow',              params: { startDate, endDate } },
+    { base: CONTROLLE_API, ep: 'report/v1/dre',               params: { startDate, endDate } },
+    { base: CONTROLLE_API, ep: 'report/v1/dashboard/dre',      params: { startDate, endDate } },
+    { base: CONTROLLE_GW,  ep: 'report/v1/dre',               params: { startDate, endDate } },
+    { base: CONTROLLE_API, ep: 'report/v1/cashflow/summary',  params: { startDate, endDate } },
   ];
 
-  for (const { base, path: ep, params } of endpoints) {
+  for (const { base, ep, params } of endpoints) {
     try {
       const result = await apiGet(base, ep, token, idEntity, params);
-      console.log(`  Endpoint ${ep} respondeu:`, JSON.stringify(result).substring(0, 400));
-
-      // Tenta extrair receita e resultado da resposta
+      console.log(`  ${ep} →`, JSON.stringify(result).substring(0, 300));
       const dre = extrairDREDaResposta(result);
       if (dre.receita && dre.receita > 0) {
-        console.log('✓ DRE:', dre);
+        console.log('✓ DRE:', JSON.stringify(dre));
         return dre;
       }
     } catch (e) {
-      console.log(`  ⚠ ${ep}: ${e.message.substring(0, 100)}`);
+      console.log(`  ⚠ ${ep}: ${e.message.substring(0, 120)}`);
     }
   }
 
-  console.log('  ⚠ DRE indisponível — retornando valores em branco.');
+  console.log('  ⚠ DRE não disponível — continuando sem atualizar receita/resultado.');
   return { receita: null, resultado: null };
 }
 
 function extrairDREDaResposta(result) {
   const dre = { receita: null, resultado: null };
   if (!result) return dre;
+  const items = result?.results ?? result?.data ?? result;
 
-  // Tenta acesso direto nos campos
-  const items = result?.results || result?.data || result;
-
-  function buscarValor(obj, keys) {
-    if (!obj) return null;
+  function num(obj, keys) {
     for (const k of keys) {
-      if (typeof obj[k] === 'number') return obj[k];
-      if (typeof obj[k] === 'string' && obj[k].includes(',')) return parseBR(obj[k]);
+      const v = obj[k];
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string' && (v.includes(',') || v.includes('.'))) { const n = parseBR(v); if (n != null) return n; }
     }
     return null;
   }
 
-  if (typeof items === 'object' && !Array.isArray(items)) {
-    dre.receita   = buscarValor(items, ['receita', 'revenue', 'totalRevenue', 'grossRevenue', 'total_revenue']);
-    dre.resultado = buscarValor(items, ['resultado', 'result', 'profit', 'netProfit', 'net_profit', 'lucro']);
+  if (typeof items === 'object' && items !== null && !Array.isArray(items)) {
+    dre.receita   = num(items, ['receita', 'revenue', 'grossRevenue', 'totalRevenue', 'total_revenue', 'gross_revenue']);
+    dre.resultado = num(items, ['resultado', 'result', 'profit', 'netProfit', 'net_profit', 'lucro', 'operationalResult']);
     return dre;
   }
 
   if (Array.isArray(items)) {
     for (const item of items) {
-      const nome = (item.name || item.nome || item.description || item.ds_name || '').toLowerCase();
-      const valor = item.value || item.total || item.amount || item.balance;
-      if (!dre.receita && (nome.includes('receita') || nome.includes('revenue') || nome.includes('faturamento'))) {
-        dre.receita = typeof valor === 'number' ? valor : parseBR(String(valor || '0'));
-      }
-      if (!dre.resultado && (nome.includes('resultado') || nome.includes('lucro') || nome.includes('profit'))) {
-        dre.resultado = typeof valor === 'number' ? valor : parseBR(String(valor || '0'));
-      }
+      const nome  = (item.name || item.nome || item.description || item.ds_name || '').toLowerCase();
+      const valor = item.value ?? item.total ?? item.amount ?? item.balance ?? item.vl_total;
+      const v     = typeof valor === 'number' ? valor : parseBR(String(valor ?? ''));
+      if (!dre.receita   && (nome.includes('receita') || nome.includes('revenue') || nome.includes('faturamento'))) dre.receita   = v;
+      if (!dre.resultado && (nome.includes('resultado') || nome.includes('lucro')  || nome.includes('profit')))     dre.resultado = v;
     }
   }
-
   return dre;
 }
 
-// ── 5. Aplicar atualizações no HTML e JSON ────────────────────────────────────
-
+// ── 4. Atualizar HTML + JSON ──────────────────────────────────────────────────
 async function aplicarAtualizacoes(repoRoot, saldos, dre) {
   const htmlPath = path.join(repoRoot, 'index.html');
   const jsonPath = path.join(repoRoot, 'data.json');
 
   let html = await fs.readFile(htmlPath, 'utf-8');
-  let dj = {};
-  try {
-    dj = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
-  } catch (_) {}
+  let dj   = {};
+  try { dj = JSON.parse(await fs.readFile(jsonPath, 'utf-8')); } catch (_) {}
 
   const ts = nowBrazil();
 
@@ -384,72 +311,51 @@ async function aplicarAtualizacoes(repoRoot, saldos, dre) {
     { nome: 'Sicoob',                  saldo: saldos['Sicoob']    }
   ];
 
-  // ---- index.html ----
-  // 1. Chart de barras bancárias
+  // ---- index.html — chart barras ----
   const labelsKey = "labels:['Itaú','BNB','Caixa','Sicoob','Santander']";
   const idx = html.indexOf(labelsKey);
   if (idx !== -1) {
-    const arr = [saldos['Itaú'], saldos['BNB'], saldos['Caixa'], saldos['Sicoob'], saldos['Santander']];
-    const dataStr = 'data:[' + arr.map(v => Number(v).toFixed(2)).join(',') + ']';
-    const dataStart = html.indexOf('data:[', idx);
-    const dataEnd   = html.indexOf(']', dataStart) + 1;
-    if (dataStart !== -1 && dataEnd > 0) {
-      html = html.substring(0, dataStart) + dataStr + html.substring(dataEnd);
-    }
+    const arr      = [saldos['Itaú'], saldos['BNB'], saldos['Caixa'], saldos['Sicoob'], saldos['Santander']];
+    const dataStr  = 'data:[' + arr.map(v => Number(v).toFixed(2)).join(',') + ']';
+    const dsStart  = html.indexOf('data:[', idx);
+    const dsEnd    = html.indexOf(']', dsStart) + 1;
+    if (dsStart !== -1 && dsEnd > 0) html = html.substring(0, dsStart) + dataStr + html.substring(dsEnd);
   }
 
-  // 2. KPI Saldo
-  html = html.replace(
-    /(kpi-label[^>]*>Saldo Atual \(Realizado\)<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
-    '$1' + fmtFull(saldos.saldoGeral)
-  );
-  html = html.replace(
-    /(kpi-label[^>]*>Saldo Realizado<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
-    '$1' + fmtFull(saldos.saldoGeral)
-  );
+  // ---- KPI Saldo ----
+  html = html.replace(/(kpi-label[^>]*>Saldo Atual \(Realizado\)<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g, '$1' + fmtFull(saldos.saldoGeral));
+  html = html.replace(/(kpi-label[^>]*>Saldo Realizado<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,          '$1' + fmtFull(saldos.saldoGeral));
 
-  // 3. KPI Receita
+  // ---- KPI Receita ----
   if (dre.receita) {
-    html = html.replace(
-      /(kpi-label[^>]*>Receita 2026[^<]*<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
-      '$1' + fmtInt(dre.receita)
-    );
-    html = html.replace(
-      /(kpi-label[^>]*>Receita Bruta[^<]*<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
-      '$1' + fmtInt(dre.receita)
-    );
+    html = html.replace(/(kpi-label[^>]*>Receita 2026[^<]*<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g, '$1' + fmtInt(dre.receita));
+    html = html.replace(/(kpi-label[^>]*>Receita Bruta[^<]*<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g, '$1' + fmtInt(dre.receita));
   }
 
-  // 4. KPI Resultado + Margem
+  // ---- KPI Resultado + Margem ----
   if (dre.resultado) {
-    html = html.replace(
-      /(kpi-label[^>]*>Resultado 2026[^<]*<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
-      '$1' + fmtInt(dre.resultado)
-    );
-    const novaMargem = fmtMargem(dre.resultado, dre.receita);
-    if (novaMargem) {
-      html = html.replace(/Margem: [\d,]+%/g, 'Margem: ' + novaMargem);
-    }
+    html = html.replace(/(kpi-label[^>]*>Resultado 2026[^<]*<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g, '$1' + fmtInt(dre.resultado));
+    const m = fmtMargem(dre.resultado, dre.receita);
+    if (m) html = html.replace(/Margem: [\d,]+%/g, 'Margem: ' + m);
   }
 
-  // 5. Timestamps
+  // ---- Timestamps ----
   html = html.replace(/Atualizado \d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/g, 'Atualizado ' + ts.display);
-  html = html.replace(/Posição: \d{2}\/\d{2}\/\d{4}(?: às \d{2}:\d{2})?/g, 'Posição: ' + ts.display);
+  html = html.replace(/Posição: \d{2}\/\d{2}\/\d{4}(?: às \d{2}:\d{2})?/g, 'Posição: '   + ts.display);
 
   await fs.writeFile(htmlPath, html, 'utf-8');
   await fs.writeFile(jsonPath, JSON.stringify(dj, null, 2), 'utf-8');
 
   return {
-    timestamp: ts.display,
+    timestamp:  ts.display,
     saldoGeral: fmtFull(saldos.saldoGeral),
-    receita: dre.receita   ? fmtInt(dre.receita)   : 'N/A',
-    resultado: dre.resultado ? fmtInt(dre.resultado) : 'N/A',
-    margem: fmtMargem(dre.resultado, dre.receita) || 'N/A'
+    receita:    dre.receita   ? fmtInt(dre.receita)   : 'N/A',
+    resultado:  dre.resultado ? fmtInt(dre.resultado) : 'N/A',
+    margem:     fmtMargem(dre.resultado, dre.receita) || 'N/A'
   };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-
 (async () => {
   const email    = process.env.CONTROLLE_EMAIL;
   const password = process.env.CONTROLLE_PASSWORD;
@@ -460,25 +366,22 @@ async function aplicarAtualizacoes(repoRoot, saldos, dre) {
 
   const repoRoot = path.resolve(__dirname, '..');
   console.log('Repo root:', repoRoot);
-  console.log('Iniciando integração via API REST do Controlle...');
+  console.log('Iniciando integração via API REST do Controlle...\n');
 
   try {
-    // 1. Firebase Auth
-    const { idToken } = await autenticarFirebase(email, password);
+    // 1. Login direto no gateway
+    const { accessToken, idEntity } = await loginControlle(email, password);
 
-    // 2. Login Controlle → idEntity
-    const { idEntity, token } = await loginControlle(idToken);
+    // 2. Saldos
+    const saldos = await buscarSaldos(accessToken, idEntity);
 
-    // 3. Saldos
-    const saldos = await buscarSaldos(token, idEntity);
+    // 3. DRE
+    const dre = await buscarDRE(accessToken, idEntity);
 
-    // 4. DRE
-    const dre = await buscarDRE(token, idEntity);
-
-    // 5. Atualiza arquivos
+    // 4. Aplica no HTML + JSON
     const summary = await aplicarAtualizacoes(repoRoot, saldos, dre);
 
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('✓ Dashboard atualizado com sucesso!');
     console.log('  Timestamp:  ', summary.timestamp);
     console.log('  Saldo geral:', summary.saldoGeral);
@@ -487,8 +390,7 @@ async function aplicarAtualizacoes(repoRoot, saldos, dre) {
     console.log('  Margem:     ', summary.margem);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   } catch (err) {
-    console.error('✗ FALHOU:', err.message);
-    console.error(err.stack);
+    console.error('\n✗ FALHOU:', err.message);
     process.exit(1);
   }
 })();
