@@ -55,10 +55,22 @@ function nowBrazil() {
 
 async function loginControlle(page, email, password) {
   console.log('→ Abrindo página de login...');
-  await page.goto('https://app.controlle.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(4000); // SPA precisa renderizar
 
-  // Aguarda algum input do tipo email/text aparecer
+  // Tenta as duas URLs possíveis do Controlle
+  await page.goto('https://app.controlle.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(5000);
+
+  // Se redirecionou para o domínio raiz, aguarda lá
+  const urlAtual = page.url();
+  console.log('  URL após goto:', urlAtual);
+  if (urlAtual.includes('controlle.com/login')) {
+    await page.waitForTimeout(3000); // aguarda SPA carregar
+  }
+
+  // Screenshot de diagnóstico sempre
+  await page.screenshot({ path: 'debug-login-inicio.png', fullPage: true }).catch(() => {});
+
+  // ── Campo de e-mail ──
   const emailSelectors = [
     'input[type="email"]',
     'input[name="email"]',
@@ -69,41 +81,49 @@ async function loginControlle(page, email, password) {
     'input[placeholder*="usuario" i]',
     'form input[type="text"]'
   ];
+  let emailHandle = null;
+  for (const sel of emailSelectors) {
+    try {
+      emailHandle = await page.waitForSelector(sel, { state: 'visible', timeout: 4000 });
+      if (emailHandle) { console.log(`  • email selector: ${sel}`); break; }
+    } catch (_) {}
+  }
+  if (!emailHandle) {
+    await page.screenshot({ path: 'debug-login-no-email.png', fullPage: true }).catch(() => {});
+    throw new Error('Campo de email não encontrado. Verifique o screenshot debug-login-inicio.png');
+  }
+
+  // ── Campo de senha ──
   const passSelectors = [
     'input[type="password"]',
     'input[name="password"]',
     'input[autocomplete="current-password"]',
     'input[placeholder*="senha" i]'
   ];
-
-  let emailHandle = null;
-  for (const sel of emailSelectors) {
-    try {
-      emailHandle = await page.waitForSelector(sel, { state: 'visible', timeout: 3000 });
-      if (emailHandle) { console.log(`  • email selector: ${sel}`); break; }
-    } catch (_) { /* tenta o próximo */ }
-  }
-  if (!emailHandle) {
-    await page.screenshot({ path: 'debug-login-no-email.png', fullPage: true }).catch(() => {});
-    throw new Error('Não encontrei o campo de email na tela de login.');
-  }
-
   let passHandle = null;
   for (const sel of passSelectors) {
     try {
       passHandle = await page.$(sel);
       if (passHandle) { console.log(`  • password selector: ${sel}`); break; }
-    } catch (_) { /* */ }
+    } catch (_) {}
   }
   if (!passHandle) {
     await page.screenshot({ path: 'debug-login-no-pass.png', fullPage: true }).catch(() => {});
-    throw new Error('Não encontrei o campo de senha na tela de login.');
+    throw new Error('Campo de senha não encontrado.');
   }
 
+  // ── Preenche credenciais ──
+  await emailHandle.click({ clickCount: 3 });
   await emailHandle.fill(email);
+  await page.waitForTimeout(500);
+  await passHandle.click({ clickCount: 3 });
   await passHandle.fill(password);
+  await page.waitForTimeout(500);
 
-  // Botão de submit — múltiplos fallbacks
+  console.log('  • Credenciais preenchidas, clicando em submit...');
+  await page.screenshot({ path: 'debug-login-preenchido.png', fullPage: true }).catch(() => {});
+
+  // ── Botão de submit — tenta cada candidato UMA vez ──
   const submitCandidates = [
     'button[type="submit"]',
     'form button:not([type="button"])',
@@ -119,28 +139,38 @@ async function loginControlle(page, email, password) {
       const btn = await page.$(sel);
       if (btn) {
         console.log(`  • submit selector: ${sel}`);
-        await Promise.race([
-          page.waitForURL(u => !u.toString().includes('/login'), { timeout: 30000 }),
-          (async () => { await btn.click(); await page.waitForTimeout(8000); })()
-        ]).catch(() => {});
-        await btn.click().catch(() => {});
+        await btn.click();
         clicked = true;
         break;
       }
-    } catch (_) { /* */ }
+    } catch (_) {}
   }
   if (!clicked) {
-    // Último fallback: pressionar Enter no campo de senha
-    await passHandle.press('Enter').catch(() => {});
+    console.log('  • Nenhum botão encontrado, tentando Enter...');
+    await passHandle.press('Enter');
   }
 
-  // Aguarda sair da tela de login
+  // ── Aguarda sair da tela de login (aceita qualquer domínio controlle) ──
+  console.log('  • Aguardando redirecionamento pós-login...');
   try {
-    await page.waitForURL(u => !u.toString().includes('/login'), { timeout: 30000 });
+    await page.waitForURL(
+      u => !u.toString().match(/controlle\.com\/login/),
+      { timeout: 35000 }
+    );
   } catch (e) {
     await page.screenshot({ path: 'debug-login-failed.png', fullPage: true }).catch(() => {});
-    throw new Error(`Login falhou — ainda em ${page.url()}. Verifique CONTROLLE_EMAIL/CONTROLLE_PASSWORD.`);
+    const urlFinal = page.url();
+    // Verifica se há mensagem de erro visível na página
+    const errMsg = await page.evaluate(() => {
+      const el = document.querySelector('.error, .alert, [class*="error"], [class*="alert"], [class*="Error"]');
+      return el ? el.innerText.trim() : null;
+    }).catch(() => null);
+    throw new Error(
+      `Login falhou (URL: ${urlFinal})${errMsg ? ` — Mensagem: "${errMsg}"` : ''}\n` +
+      `Verifique se CONTROLLE_EMAIL e CONTROLLE_PASSWORD estão corretos nos Secrets do GitHub.`
+    );
   }
+
   console.log('✓ Login OK. URL atual:', page.url());
 }
 
