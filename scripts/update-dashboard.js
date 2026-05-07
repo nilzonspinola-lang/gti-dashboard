@@ -1,12 +1,14 @@
 /**
  * GTI Dashboard - Atualização diária via API REST do Controlle
  *
- * Fluxo:
- * 1. POST /company/login no Gateway → email + senha → retorna accessToken + idEntity
- * 2. GET report/v1/dashboard/balances → saldos das contas bancárias
- * 3. GET transaction/v1/accounts → fallback individual por conta
- * 4. DRE via múltiplos endpoints → receita e resultado YTD
- * 5. Atualiza index.html e data.json
+ * Fluxo confirmado (via análise do bundle JS do Controlle):
+ * 1. POST /company/login  (Gateway) → {accessToken, refreshToken}
+ * 2. GET  /auth/entities  (API)     → lista de entidades; usa .id da que tem current:true
+ * 3. GET  /report/v1/dashboard/balances  (API + header id_entity) → saldo geral
+ * 4. GET  /account/v1/accounts           (API + header id_entity) → contas por banco
+ * 5. GET  /company/redirect/financial/report/dre (Gateway) → DRE anual
+ * 6. Fallback DRE: managerDashboard/invoicing + profitability
+ * 7. Atualiza index.html e data.json
  */
 
 const https = require('https');
@@ -20,7 +22,8 @@ const CONTROLLE_GW  = 'https://controlle-gateway-prod.controlle.com';
 // ── Helpers de formatação BR ──────────────────────────────────────────────────
 function parseBR(s) {
   if (s == null) return null;
-  return parseFloat(String(s).replace(/R\$\s*/, '').replace(/\./g, '').replace(',', '.').trim());
+  const n = parseFloat(String(s).replace(/R\$\s*/, '').replace(/\./g, '').replace(',', '.').trim());
+  return isNaN(n) ? null : n;
 }
 
 function fmtFull(v) {
@@ -65,7 +68,9 @@ function httpRequest(options, body = null) {
         try   { parsed = JSON.parse(data); }
         catch { parsed = data; }
         if (res.statusCode >= 400) {
-          const msg = (parsed && parsed.message) ? parsed.message : JSON.stringify(parsed).substring(0, 300);
+          const msg = (parsed && parsed.message)
+            ? parsed.message
+            : JSON.stringify(parsed).substring(0, 300);
           reject(new Error(`HTTP ${res.statusCode}: ${msg}`));
         } else {
           resolve(parsed);
@@ -78,7 +83,7 @@ function httpRequest(options, body = null) {
   });
 }
 
-function apiPost(baseUrl, endpoint, token, body, extraHeaders = {}) {
+function apiPost(baseUrl, endpoint, token, body) {
   const url     = new URL(baseUrl + '/' + endpoint.replace(/^\//, ''));
   const bodyStr = JSON.stringify(body);
   return httpRequest({
@@ -89,12 +94,15 @@ function apiPost(baseUrl, endpoint, token, body, extraHeaders = {}) {
       'Content-Type':   'application/json',
       'Accept':         'application/json',
       'Content-Length': Buffer.byteLength(bodyStr),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...extraHeaders
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   }, bodyStr);
 }
 
+/**
+ * apiGet — passa idEntity como header id_entity (padrão do app Controlle)
+ * e aceita params adicionais como query string.
+ */
 function apiGet(baseUrl, endpoint, token, idEntity, params = {}) {
   const url = new URL(baseUrl + '/' + endpoint.replace(/^\//, ''));
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
@@ -111,14 +119,11 @@ function apiGet(baseUrl, endpoint, token, idEntity, params = {}) {
   });
 }
 
-// ── 1. Login direto no Controlle Gateway ──────────────────────────────────────
-// Fluxo real do app:
-//   1a. POST /company/login  → {accessToken, refreshToken}
-//   1b. GET  /auth/entities  → array de entidades; usa .id da que tem current:true
+// ── 1. Login + busca idEntity ─────────────────────────────────────────────────
 async function loginControlle(email, password) {
   console.log('→ Autenticando no Controlle Gateway...');
 
-  // ── 1a. Login ──
+  // 1a. POST /company/login → {accessToken, refreshToken}
   let loginResp;
   try {
     loginResp = await apiPost(CONTROLLE_GW, 'company/login', null, { email, password });
@@ -133,44 +138,38 @@ async function loginControlle(email, password) {
     throw new Error(`Login Controlle falhou: ${msg}`);
   }
 
-  // Extrai accessToken (a resposta é {accessToken, refreshToken})
   const accessToken = loginResp?.accessToken || loginResp?.access_token ||
                       loginResp?.token       || loginResp?.idToken;
-
   if (!accessToken) {
-    throw new Error(
-      'Login OK mas sem accessToken. Campos recebidos: ' +
-      Object.keys(loginResp || {}).join(', ')
-    );
+    throw new Error('Login OK mas sem accessToken. Campos: ' + Object.keys(loginResp || {}).join(', '));
   }
   console.log('  ✓ accessToken obtido');
 
-  // ── 1b. Busca entidades para obter idEntity ──
-  // O app usa ae.get("auth/entities") onde ae tem baseURL = CONTROLLE_API (não o gateway)
-  console.log('→ Buscando entidades do usuário...');
-  let entities;
+  // 1b. GET /auth/entities (CONTROLLE_API) → { id, name, current, ... }[]
+  console.log('→ Buscando entidades...');
+  let entitiesResp;
   try {
-    entities = await apiGet(CONTROLLE_API, 'auth/entities', accessToken, null);
+    entitiesResp = await apiGet(CONTROLLE_API, 'auth/entities', accessToken, null);
   } catch (err) {
-    throw new Error(`Falha ao buscar entidades: ${err.message}`);
+    throw new Error(`Falha ao buscar entidades (auth/entities): ${err.message}`);
   }
 
-  // A resposta é { entities: [...] } ou diretamente um array
-  const lista = entities?.entities ?? entities?.data ?? entities;
+  console.log('  auth/entities snippet:', JSON.stringify(entitiesResp).substring(0, 300));
+
+  // Normaliza para array
+  const lista = entitiesResp?.entities ?? entitiesResp?.data ?? entitiesResp;
   const arr   = Array.isArray(lista) ? lista : (lista ? [lista] : []);
 
   if (arr.length === 0) {
-    throw new Error('Nenhuma entidade retornada. Campos recebidos: ' + Object.keys(entities || {}).join(', '));
+    throw new Error('Nenhuma entidade retornada. Campos: ' + Object.keys(entitiesResp || {}).join(', '));
   }
 
   // Prefere a marcada como current; senão pega a primeira
   const entidade = arr.find(e => e.current === true) || arr[0];
-  const idEntity = entidade?.id || entidade?.idEntity || entidade?.entityId;
+  const idEntity = entidade?.id || entidade?.idEntity || entidade?.entityId || entidade?.companyId;
 
   if (!idEntity) {
-    throw new Error(
-      'Entidade sem id. Campos: ' + Object.keys(entidade || {}).join(', ')
-    );
+    throw new Error('Entidade sem campo id. Campos: ' + Object.keys(entidade || {}).join(', '));
   }
 
   console.log(`✓ Login OK — idEntity: ${idEntity} (${entidade?.name || entidade?.fantasyName || 'sem nome'})`);
@@ -178,22 +177,21 @@ async function loginControlle(email, password) {
 }
 
 // ── 2. Buscar saldos ──────────────────────────────────────────────────────────
-// Endpoints confirmados via bundle:
-//   GET report/v1/dashboard/balances            → saldo geral {results:{balances:{generalBalance}}}
-//   GET account/v1/accounts                     → lista de contas [{dsAccount, actualBalance, ...}]
-// idEntity é passado como header id_entity (já configurado em apiGet)
 async function buscarSaldos(token, idEntity) {
   console.log('→ Buscando saldos...');
 
   const bankMap = {
     'Itaú':      ['itau', 'itaú', 'unibanco'],
     'Santander': ['santander'],
-    'BNB':       ['nordeste', 'bnb'],
+    'BNB':       ['nordeste', 'bnb', 'banco do nordeste'],
     'Caixa':     ['caixa', 'cef'],
     'Sicoob':    ['sicoob', 'sicredi']
   };
 
-  const saldos = { 'Itaú': null, 'Santander': null, 'BNB': null, 'Caixa': null, 'Sicoob': null, saldoGeral: null };
+  const saldos = {
+    'Itaú': null, 'Santander': null, 'BNB': null,
+    'Caixa': null, 'Sicoob': null, saldoGeral: null
+  };
 
   function classificarBanco(nomeRaw, valor) {
     const nome = (nomeRaw || '').toLowerCase();
@@ -206,109 +204,146 @@ async function buscarSaldos(token, idEntity) {
     return false;
   }
 
-  // ── Saldo geral via report/v1/dashboard/balances ──
-  // Retorna: { status:200, results: { balances: { generalBalance: N, ... } } }
+  function extrairNumero(item, ...campos) {
+    for (const c of campos) {
+      if (typeof item[c] === 'number') return item[c];
+    }
+    for (const c of campos) {
+      if (item[c] != null) {
+        const n = parseBR(String(item[c]));
+        if (n !== null) return n;
+      }
+    }
+    return 0;
+  }
+
+  // ── A. Saldo geral: report/v1/dashboard/balances ──────────────────────────
+  // Resposta confirmada: { status:200, results:{ balances:{ generalBalance:N, ... } } }
   try {
     const r = await apiGet(CONTROLLE_API, 'report/v1/dashboard/balances', token, idEntity);
-    console.log('  dashboard/balances snippet:', JSON.stringify(r).substring(0, 200));
+    console.log('  [dashboard/balances]', JSON.stringify(r).substring(0, 400));
+
     const gb = r?.results?.balances?.generalBalance
             ?? r?.results?.balances?.generalBalanceNew
-            ?? r?.balances?.generalBalance;
+            ?? r?.balances?.generalBalance
+            ?? r?.generalBalance;
+
     if (typeof gb === 'number') {
       saldos.saldoGeral = gb;
-      console.log(`  ✓ saldoGeral: ${gb}`);
+      console.log(`  ✓ saldoGeral via dashboard/balances: R$ ${gb.toLocaleString('pt-BR')}`);
+    } else {
+      console.log('  ⚠ generalBalance não encontrado na resposta');
+    }
+
+    // Tenta extrair saldos por conta do balanceOfTheMonth se disponível
+    const bom = r?.results?.balanceOfTheMonth;
+    if (bom) {
+      console.log('  balanceOfTheMonth:', JSON.stringify(bom).substring(0, 200));
     }
   } catch (e) {
-    console.log(`  ⚠ dashboard/balances: ${e.message.substring(0, 150)}`);
+    console.log(`  ⚠ dashboard/balances: ${e.message.substring(0, 200)}`);
   }
 
-  // ── Saldos por conta via account/v1/accounts ──
-  // Retorna: { results: [ { dsAccount, actualBalance, status, ... } ] }
+  // ── B. Saldos por conta: account/v1/accounts ─────────────────────────────
+  // Resposta: { results: [ { dsAccount, actualBalance, status, ... } ] }
   try {
     const r = await apiGet(CONTROLLE_API, 'account/v1/accounts', token, idEntity);
-    console.log('  account/v1/accounts snippet:', JSON.stringify(r).substring(0, 400));
+    console.log('  [account/v1/accounts]', JSON.stringify(r).substring(0, 600));
+
     const lista = r?.results ?? r?.data ?? r;
     const arr   = Array.isArray(lista) ? lista : [];
+    console.log(`  → ${arr.length} conta(s) retornada(s)`);
+
     for (const item of arr) {
-      // campos: dsAccount (nome), actualBalance ou actual_balance, status (1=ativo)
-      const ativo = item.status === 1 || item.status === undefined || item.disabled === false;
-      if (!ativo) continue;
+      const ativo = item.status === 1 || item.status === true || item.status === undefined;
       const nome  = item.dsAccount || item.ds_account || item.name || item.nome || item.description || '';
-      const valor = typeof item.actualBalance  === 'number' ? item.actualBalance
-                  : typeof item.actual_balance === 'number' ? item.actual_balance
-                  : typeof item.balance        === 'number' ? item.balance
-                  : parseBR(String(item.actualBalance ?? item.actual_balance ?? item.balance ?? '')) ?? 0;
-      console.log(`  conta: "${nome}" (status=${item.status}) → ${valor}`);
-      classificarBanco(nome, valor);
+      const valor = extrairNumero(item, 'actualBalance', 'actual_balance', 'balance', 'saldo');
+      console.log(`    conta: "${nome}" status=${item.status} ativo=${ativo} valor=${valor}`);
+      if (ativo) classificarBanco(nome, valor);
     }
   } catch (e) {
-    console.log(`  ⚠ account/v1/accounts: ${e.message.substring(0, 150)}`);
+    console.log(`  ⚠ account/v1/accounts: ${e.message.substring(0, 200)}`);
   }
 
-  // Garante que nenhum banco fique null
+  // ── C. Fallback: managerDashboard/generalBalance ──────────────────────────
+  if (saldos.saldoGeral === null) {
+    try {
+      const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/generalBalance',
+                             token, idEntity, { startDate: `${new Date().getFullYear()}-01-01`,
+                                                endDate:   `${new Date().getFullYear()}-12-31` });
+      console.log('  [managerDashboard/generalBalance]', JSON.stringify(r).substring(0, 300));
+      const gb = r?.balances?.generalBalance ?? r?.generalBalance ?? r?.result;
+      if (typeof gb === 'number') {
+        saldos.saldoGeral = gb;
+        console.log(`  ✓ saldoGeral via managerDashboard: ${gb}`);
+      }
+    } catch (e) {
+      console.log(`  ⚠ managerDashboard/generalBalance: ${e.message.substring(0, 150)}`);
+    }
+  }
+
+  // Garante valores padrão
   for (const banco of ['Itaú', 'Santander', 'BNB', 'Caixa', 'Sicoob']) {
-    if (saldos[banco] === null) { saldos[banco] = 0; console.log(`  ⚠ ${banco} não encontrado — usando 0`); }
+    if (saldos[banco] === null) {
+      saldos[banco] = 0;
+      console.log(`  ⚠ ${banco} não encontrado nas contas — usando 0`);
+    }
   }
   if (saldos.saldoGeral === null) {
     saldos.saldoGeral = Object.entries(saldos)
       .filter(([k]) => k !== 'saldoGeral')
       .reduce((s, [, v]) => s + (v || 0), 0);
-    console.log(`  saldoGeral calculado pela soma: ${saldos.saldoGeral}`);
+    console.log(`  saldoGeral calculado: ${saldos.saldoGeral}`);
   }
 
-  console.log('✓ Saldos:', JSON.stringify(saldos));
+  console.log('✓ Saldos finais:', JSON.stringify(saldos));
   return saldos;
 }
 
 // ── 3. Buscar DRE ─────────────────────────────────────────────────────────────
-// Endpoints confirmados via bundle:
-//   GET /company/redirect/financial/report/dre  (GATEWAY, Bearer + startDate/endDate)
-//   GET /report/v1/managerDashboard/invoicing    (API, Bearer + startDate/endDate)
-//   GET /report/v1/managerDashboard/profitability (API)
 async function buscarDRE(token, idEntity) {
   console.log('→ Buscando DRE...');
   const ano       = new Date().getFullYear();
   const startDate = `${ano}-01-01`;
   const endDate   = `${ano}-12-31`;
 
-  // Tentativa 1: DRE redirect no gateway
+  // Tentativa A: DRE redirect no gateway
   try {
     const r = await apiGet(CONTROLLE_GW, 'company/redirect/financial/report/dre',
                            token, idEntity, { startDate, endDate });
-    console.log('  report/dre gateway →', JSON.stringify(r).substring(0, 400));
+    console.log('  [dre gateway]', JSON.stringify(r).substring(0, 500));
     const dre = extrairDREDaResposta(r);
     if (dre.receita && dre.receita > 0) {
       console.log('✓ DRE (gateway):', JSON.stringify(dre));
       return dre;
     }
   } catch (e) {
-    console.log(`  ⚠ report/dre gateway: ${e.message.substring(0, 150)}`);
+    console.log(`  ⚠ dre gateway: ${e.message.substring(0, 150)}`);
   }
 
-  // Tentativa 2: invoicing (receita bruta) + profitability (resultado)
+  // Tentativa B: managerDashboard/invoicing (receita) + profitability (resultado)
   let receita = null, resultado = null;
+
   try {
     const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/invoicing',
                            token, idEntity, { startDate, endDate });
-    console.log('  invoicing →', JSON.stringify(r).substring(0, 200));
-    const res = r?.result ?? r?.data ?? r;
-    receita = typeof res?.totalRevenue === 'number' ? res.totalRevenue
-            : typeof res?.revenue      === 'number' ? res.revenue
-            : typeof res?.value        === 'number' ? res.value : null;
+    console.log('  [invoicing]', JSON.stringify(r).substring(0, 300));
+    const d = r?.result ?? r?.results ?? r?.data ?? r;
+    receita = extrairNumeroObjeto(d, ['totalRevenue','revenue','value','total','invoicing','faturamento']) ??
+              (Array.isArray(d) ? somarArray(d, ['totalRevenue','revenue','value']) : null);
   } catch (e) {
-    console.log(`  ⚠ invoicing: ${e.message.substring(0, 120)}`);
+    console.log(`  ⚠ invoicing: ${e.message.substring(0, 150)}`);
   }
 
   try {
     const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/profitability',
                            token, idEntity, { startDate, endDate });
-    console.log('  profitability →', JSON.stringify(r).substring(0, 200));
-    const res = r?.result ?? r?.data ?? r;
-    resultado = typeof res?.result === 'number' ? res.result
-              : typeof res?.profit === 'number' ? res.profit
-              : typeof res?.value  === 'number' ? res.value : null;
+    console.log('  [profitability]', JSON.stringify(r).substring(0, 300));
+    const d = r?.result ?? r?.results ?? r?.data ?? r;
+    resultado = extrairNumeroObjeto(d, ['result','profit','netProfit','net_profit','lucro','operationalResult','value']) ??
+                (Array.isArray(d) ? somarArray(d, ['result','profit','value']) : null);
   } catch (e) {
-    console.log(`  ⚠ profitability: ${e.message.substring(0, 120)}`);
+    console.log(`  ⚠ profitability: ${e.message.substring(0, 150)}`);
   }
 
   if (receita && receita > 0) {
@@ -316,27 +351,59 @@ async function buscarDRE(token, idEntity) {
     return { receita, resultado };
   }
 
-  console.log('  ⚠ DRE não disponível — continuando sem atualizar receita/resultado.');
+  // Tentativa C: managerDashboard/ebitda
+  try {
+    const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/ebitda',
+                           token, idEntity, { startDate, endDate });
+    console.log('  [ebitda]', JSON.stringify(r).substring(0, 300));
+    const d = r?.result ?? r?.results ?? r?.data ?? r;
+    if (d) {
+      receita   = extrairNumeroObjeto(d, ['totalRevenue','revenue','grossRevenue']) ?? receita;
+      resultado = extrairNumeroObjeto(d, ['ebitda','result','profit'])              ?? resultado;
+      if (receita && receita > 0) {
+        console.log('✓ DRE (ebitda):', { receita, resultado });
+        return { receita, resultado };
+      }
+    }
+  } catch (e) {
+    console.log(`  ⚠ ebitda: ${e.message.substring(0, 150)}`);
+  }
+
+  console.log('  ⚠ DRE não disponível — continuando sem receita/resultado.');
   return { receita: null, resultado: null };
+}
+
+function extrairNumeroObjeto(obj, campos) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  for (const c of campos) {
+    if (typeof obj[c] === 'number') return obj[c];
+    if (obj[c] != null) {
+      const n = parseBR(String(obj[c]));
+      if (n !== null) return n;
+    }
+  }
+  return null;
+}
+
+function somarArray(arr, campos) {
+  let total = 0;
+  for (const item of arr) {
+    for (const c of campos) {
+      if (typeof item[c] === 'number') { total += item[c]; break; }
+    }
+  }
+  return total > 0 ? total : null;
 }
 
 function extrairDREDaResposta(result) {
   const dre = { receita: null, resultado: null };
   if (!result) return dre;
+
   const items = result?.results ?? result?.data ?? result;
 
-  function num(obj, keys) {
-    for (const k of keys) {
-      const v = obj[k];
-      if (typeof v === 'number') return v;
-      if (typeof v === 'string' && (v.includes(',') || v.includes('.'))) { const n = parseBR(v); if (n != null) return n; }
-    }
-    return null;
-  }
-
   if (typeof items === 'object' && items !== null && !Array.isArray(items)) {
-    dre.receita   = num(items, ['receita', 'revenue', 'grossRevenue', 'totalRevenue', 'total_revenue', 'gross_revenue']);
-    dre.resultado = num(items, ['resultado', 'result', 'profit', 'netProfit', 'net_profit', 'lucro', 'operationalResult']);
+    dre.receita   = extrairNumeroObjeto(items, ['receita','revenue','grossRevenue','totalRevenue','total_revenue','gross_revenue','faturamento']);
+    dre.resultado = extrairNumeroObjeto(items, ['resultado','result','profit','netProfit','net_profit','lucro','operationalResult','ebitda']);
     return dre;
   }
 
@@ -366,8 +433,8 @@ async function aplicarAtualizacoes(repoRoot, saldos, dre) {
   // ---- data.json ----
   dj.data_coleta = ts.storage;
   dj.saldo_geral = saldos.saldoGeral;
-  if (dre.receita)   dj.receita_ytd   = dre.receita;
-  if (dre.resultado) dj.resultado_ytd = dre.resultado;
+  if (dre.receita   != null) dj.receita_ytd   = dre.receita;
+  if (dre.resultado != null) dj.resultado_ytd = dre.resultado;
   dj.contas = [
     { nome: 'Itaú Unibanco',           saldo: saldos['Itaú']      },
     { nome: 'Santander',               saldo: saldos['Santander'] },
@@ -434,16 +501,9 @@ async function aplicarAtualizacoes(repoRoot, saldos, dre) {
   console.log('Iniciando integração via API REST do Controlle...\n');
 
   try {
-    // 1. Login direto no gateway
     const { accessToken, idEntity } = await loginControlle(email, password);
-
-    // 2. Saldos
-    const saldos = await buscarSaldos(accessToken, idEntity);
-
-    // 3. DRE
-    const dre = await buscarDRE(accessToken, idEntity);
-
-    // 4. Aplica no HTML + JSON
+    const saldos  = await buscarSaldos(accessToken, idEntity);
+    const dre     = await buscarDRE(accessToken, idEntity);
     const summary = await aplicarAtualizacoes(repoRoot, saldos, dre);
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
