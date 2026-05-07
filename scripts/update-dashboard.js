@@ -178,10 +178,10 @@ async function loginControlle(email, password) {
 }
 
 // ── 2. Buscar saldos ──────────────────────────────────────────────────────────
-// Endpoints reais do app (confirmados via bundle):
-//   GET report/v1/dashboard/balances?idEntity=X        → array de contas c/ actualBalance/dsAccount
-//   GET report/v1/managerDashboard/generalBalance       → saldo geral {balances:{generalBalance}}
-// idEntity é passado como QUERY PARAM, não como header
+// Endpoints confirmados via bundle:
+//   GET report/v1/dashboard/balances            → saldo geral {results:{balances:{generalBalance}}}
+//   GET account/v1/accounts                     → lista de contas [{dsAccount, actualBalance, ...}]
+// idEntity é passado como header id_entity (já configurado em apiGet)
 async function buscarSaldos(token, idEntity) {
   console.log('→ Buscando saldos...');
 
@@ -189,7 +189,6 @@ async function buscarSaldos(token, idEntity) {
     'Itaú':      ['itau', 'itaú', 'unibanco'],
     'Santander': ['santander'],
     'BNB':       ['nordeste', 'bnb'],
-    'Banco do Nordeste': ['nordeste', 'bnb'],
     'Caixa':     ['caixa', 'cef'],
     'Sicoob':    ['sicoob', 'sicredi']
   };
@@ -200,56 +199,50 @@ async function buscarSaldos(token, idEntity) {
     const nome = (nomeRaw || '').toLowerCase();
     for (const [banco, kws] of Object.entries(bankMap)) {
       if (kws.some(k => nome.includes(k))) {
-        const chave = ['Itaú','Santander','BNB','Caixa','Sicoob'].find(b =>
-          bankMap[b] === bankMap[banco] || b === banco
-        ) || banco;
-        if (saldos[chave] === null) saldos[chave] = valor;
+        if (saldos[banco] === null) saldos[banco] = valor;
         return true;
       }
     }
     return false;
   }
 
-  // ── Saldo geral via managerDashboard/generalBalance ──
+  // ── Saldo geral via report/v1/dashboard/balances ──
+  // Retorna: { status:200, results: { balances: { generalBalance: N, ... } } }
   try {
-    const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/generalBalance', token, null,
-                           { idEntity });
-    console.log('  generalBalance →', JSON.stringify(r).substring(0, 300));
-    // Estrutura: { balances: { generalBalance: N, ... } }
-    const gb = r?.balances?.generalBalance ?? r?.balances?.generalBalanceNew ??
-               r?.result?.balances?.generalBalance ?? r?.generalBalance ?? r?.result;
+    const r = await apiGet(CONTROLLE_API, 'report/v1/dashboard/balances', token, idEntity);
+    console.log('  dashboard/balances snippet:', JSON.stringify(r).substring(0, 200));
+    const gb = r?.results?.balances?.generalBalance
+            ?? r?.results?.balances?.generalBalanceNew
+            ?? r?.balances?.generalBalance;
     if (typeof gb === 'number') {
       saldos.saldoGeral = gb;
       console.log(`  ✓ saldoGeral: ${gb}`);
-    } else if (r?.results !== undefined) {
-      // pode ser array direto
-      const arr = Array.isArray(r.results) ? r.results : [];
-      const total = arr.find(i => (i.name || i.dsAccount || '').toLowerCase().includes('total') ||
-                                  (i.name || i.dsAccount || '').toLowerCase().includes('geral'));
-      if (total) saldos.saldoGeral = total.actualBalance ?? total.balance ?? 0;
-    }
-  } catch (e) {
-    console.log(`  ⚠ managerDashboard/generalBalance: ${e.message.substring(0, 150)}`);
-  }
-
-  // ── Saldos por conta via dashboard/balances ──
-  try {
-    const r = await apiGet(CONTROLLE_API, 'report/v1/dashboard/balances', token, null,
-                           { idEntity });
-    console.log('  dashboard/balances →', JSON.stringify(r).substring(0, 400));
-    // Estrutura: { results: [ { idAccount, dsAccount, actualBalance, ... } ] }
-    const arr = r?.results ?? r?.data ?? r;
-    const lista = Array.isArray(arr) ? arr : [];
-    for (const item of lista) {
-      const nome  = item.dsAccount || item.name || item.nome || item.description || '';
-      const valor = typeof item.actualBalance === 'number' ? item.actualBalance
-                  : typeof item.balance       === 'number' ? item.balance
-                  : parseBR(String(item.actualBalance ?? item.balance ?? '')) ?? 0;
-      classificarBanco(nome, valor);
-      console.log(`  conta: "${nome}" → ${valor}`);
     }
   } catch (e) {
     console.log(`  ⚠ dashboard/balances: ${e.message.substring(0, 150)}`);
+  }
+
+  // ── Saldos por conta via account/v1/accounts ──
+  // Retorna: { results: [ { dsAccount, actualBalance, status, ... } ] }
+  try {
+    const r = await apiGet(CONTROLLE_API, 'account/v1/accounts', token, idEntity);
+    console.log('  account/v1/accounts snippet:', JSON.stringify(r).substring(0, 400));
+    const lista = r?.results ?? r?.data ?? r;
+    const arr   = Array.isArray(lista) ? lista : [];
+    for (const item of arr) {
+      // campos: dsAccount (nome), actualBalance ou actual_balance, status (1=ativo)
+      const ativo = item.status === 1 || item.status === undefined || item.disabled === false;
+      if (!ativo) continue;
+      const nome  = item.dsAccount || item.ds_account || item.name || item.nome || item.description || '';
+      const valor = typeof item.actualBalance  === 'number' ? item.actualBalance
+                  : typeof item.actual_balance === 'number' ? item.actual_balance
+                  : typeof item.balance        === 'number' ? item.balance
+                  : parseBR(String(item.actualBalance ?? item.actual_balance ?? item.balance ?? '')) ?? 0;
+      console.log(`  conta: "${nome}" (status=${item.status}) → ${valor}`);
+      classificarBanco(nome, valor);
+    }
+  } catch (e) {
+    console.log(`  ⚠ account/v1/accounts: ${e.message.substring(0, 150)}`);
   }
 
   // Garante que nenhum banco fique null
@@ -268,50 +261,56 @@ async function buscarSaldos(token, idEntity) {
 }
 
 // ── 3. Buscar DRE ─────────────────────────────────────────────────────────────
-// Endpoints reais confirmados via bundle:
-//   GET /company/redirect/financial/report/dre    (GATEWAY, com Bearer + startDate/endDate)
-//   GET /plan-account/v1/dreGroups                (API, sem params — retorna grupos DRE)
+// Endpoints confirmados via bundle:
+//   GET /company/redirect/financial/report/dre  (GATEWAY, Bearer + startDate/endDate)
+//   GET /report/v1/managerDashboard/invoicing    (API, Bearer + startDate/endDate)
+//   GET /report/v1/managerDashboard/profitability (API)
 async function buscarDRE(token, idEntity) {
   console.log('→ Buscando DRE...');
   const ano       = new Date().getFullYear();
   const startDate = `${ano}-01-01`;
   const endDate   = `${ano}-12-31`;
 
-  // Tentativa 1: endpoint DRE do gateway (company/redirect/financial/report/dre)
+  // Tentativa 1: DRE redirect no gateway
   try {
     const r = await apiGet(CONTROLLE_GW, 'company/redirect/financial/report/dre',
                            token, idEntity, { startDate, endDate });
-    console.log('  company/redirect/financial/report/dre →', JSON.stringify(r).substring(0, 400));
+    console.log('  report/dre gateway →', JSON.stringify(r).substring(0, 400));
     const dre = extrairDREDaResposta(r);
     if (dre.receita && dre.receita > 0) {
       console.log('✓ DRE (gateway):', JSON.stringify(dre));
       return dre;
     }
   } catch (e) {
-    console.log(`  ⚠ company/redirect/financial/report/dre: ${e.message.substring(0, 150)}`);
+    console.log(`  ⚠ report/dre gateway: ${e.message.substring(0, 150)}`);
   }
 
-  // Tentativa 2: managerDashboard endpoints com startDate/endDate
-  const endpoints2 = [
-    { base: CONTROLLE_API, ep: 'report/v1/managerDashboard/invoicing',           params: { startDate, endDate } },
-    { base: CONTROLLE_API, ep: 'report/v1/managerDashboard/profitability',        params: { startDate, endDate } },
-    { base: CONTROLLE_API, ep: 'report/v1/managerDashboard/contributionMargin',   params: { startDate, endDate } },
-  ];
+  // Tentativa 2: invoicing (receita bruta) + profitability (resultado)
   let receita = null, resultado = null;
-  for (const { base, ep, params } of endpoints2) {
-    try {
-      const r = await apiGet(base, ep, token, idEntity, params);
-      console.log(`  ${ep} →`, JSON.stringify(r).substring(0, 200));
-      const result = r?.result ?? r?.data ?? r;
-      if (ep.includes('invoicing') && typeof result?.totalRevenue === 'number')   receita   = result.totalRevenue;
-      if (ep.includes('invoicing') && typeof result?.revenue       === 'number')   receita   = result.revenue;
-      if (ep.includes('profitability') && typeof result?.result    === 'number')   resultado = result.result;
-      if (ep.includes('profitability') && typeof result?.profit    === 'number')   resultado = result.profit;
-      if (ep.includes('contributionMargin') && !resultado && typeof result?.value === 'number') resultado = result.value;
-    } catch (e) {
-      console.log(`  ⚠ ${ep}: ${e.message.substring(0, 120)}`);
-    }
+  try {
+    const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/invoicing',
+                           token, idEntity, { startDate, endDate });
+    console.log('  invoicing →', JSON.stringify(r).substring(0, 200));
+    const res = r?.result ?? r?.data ?? r;
+    receita = typeof res?.totalRevenue === 'number' ? res.totalRevenue
+            : typeof res?.revenue      === 'number' ? res.revenue
+            : typeof res?.value        === 'number' ? res.value : null;
+  } catch (e) {
+    console.log(`  ⚠ invoicing: ${e.message.substring(0, 120)}`);
   }
+
+  try {
+    const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/profitability',
+                           token, idEntity, { startDate, endDate });
+    console.log('  profitability →', JSON.stringify(r).substring(0, 200));
+    const res = r?.result ?? r?.data ?? r;
+    resultado = typeof res?.result === 'number' ? res.result
+              : typeof res?.profit === 'number' ? res.profit
+              : typeof res?.value  === 'number' ? res.value : null;
+  } catch (e) {
+    console.log(`  ⚠ profitability: ${e.message.substring(0, 120)}`);
+  }
+
   if (receita && receita > 0) {
     console.log('✓ DRE (managerDashboard):', { receita, resultado });
     return { receita, resultado };
