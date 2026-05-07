@@ -146,11 +146,11 @@ async function loginControlle(email, password) {
   console.log('  ✓ accessToken obtido');
 
   // ── 1b. Busca entidades para obter idEntity ──
+  // O app usa ae.get("auth/entities") onde ae tem baseURL = CONTROLLE_API (não o gateway)
   console.log('→ Buscando entidades do usuário...');
   let entities;
   try {
-    // O app chama GET /auth/entities no gateway com o Bearer token
-    entities = await apiGet(CONTROLLE_GW, 'auth/entities', accessToken, null);
+    entities = await apiGet(CONTROLLE_API, 'auth/entities', accessToken, null);
   } catch (err) {
     throw new Error(`Falha ao buscar entidades: ${err.message}`);
   }
