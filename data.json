@@ -1,27 +1,27 @@
 {
-  "data_coleta": "07/05/2026 as 09:44",
+  "data_coleta": "07/05/2026 as 10:01",
   "saldo_geral": 2211939,
   "receita_ytd": 168920.32,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 0
+      "saldo": 1798588
     },
     {
       "nome": "Santander",
-      "saldo": 0
+      "saldo": 71732
     },
     {
       "nome": "Banco do Nordeste",
-      "saldo": 0
+      "saldo": 278807
     },
     {
       "nome": "Caixa Econômica Federal",
-      "saldo": 0
+      "saldo": 51872
     },
     {
       "nome": "Sicoob",
-      "saldo": 0
+      "saldo": 10940
     }
   ],
   "resultado_ytd": 65257.02
