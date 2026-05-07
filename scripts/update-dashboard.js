@@ -223,14 +223,16 @@ async function buscarSaldos(token, idEntity) {
     const r = await apiGet(CONTROLLE_API, 'report/v1/dashboard/balances', token, idEntity);
     console.log('  [dashboard/balances]', JSON.stringify(r).substring(0, 400));
 
-    const gb = r?.results?.balances?.generalBalance
-            ?? r?.results?.balances?.generalBalanceNew
-            ?? r?.balances?.generalBalance
-            ?? r?.generalBalance;
+    const gbRaw = r?.results?.balances?.generalBalance
+               ?? r?.results?.balances?.generalBalanceNew
+               ?? r?.balances?.generalBalance
+               ?? r?.generalBalance;
 
-    if (typeof gb === 'number') {
+    if (typeof gbRaw === 'number') {
+      // generalBalance retornado em centavos → divide por 100
+      const gb = gbRaw / 100;
       saldos.saldoGeral = gb;
-      console.log(`  ✓ saldoGeral via dashboard/balances: R$ ${gb.toLocaleString('pt-BR')}`);
+      console.log(`  ✓ saldoGeral: ${gbRaw} centavos = R$ ${gb.toFixed(2)}`);
     } else {
       console.log('  ⚠ generalBalance não encontrado na resposta');
     }
@@ -265,26 +267,38 @@ async function buscarSaldos(token, idEntity) {
       }
 
       // Busca saldo real via endpoint individual
+      // Requer startDate/endDate — usa mês atual (1º ao último dia)
+      const hoje    = new Date();
+      const anoAtual = hoje.getFullYear();
+      const mesAtual = String(hoje.getMonth() + 1).padStart(2, '0');
+      const ultimoDia = new Date(anoAtual, hoje.getMonth() + 1, 0).getDate();
+      const startDate = `${anoAtual}-${mesAtual}-01`;
+      const endDate   = `${anoAtual}-${mesAtual}-${ultimoDia}`;
+
       try {
-        const rb = await apiGet(CONTROLLE_API, `account/v1/accounts/balances/${contaId}`, token, idEntity);
-        console.log(`    [balances/${contaId}]`, JSON.stringify(rb).substring(0, 300));
+        const rb = await apiGet(CONTROLLE_API, `account/v1/accounts/balances/${contaId}`,
+                                token, idEntity, { startDate, endDate });
+        console.log(`    [balances/${contaId}]`, JSON.stringify(rb).substring(0, 400));
 
         // Resposta: array de períodos com { dsAccount, actualBalance, ahAccountBalance, ... }
         const periodos = Array.isArray(rb?.results) ? rb.results
                        : Array.isArray(rb)          ? rb
                        : rb?.results ? [rb.results] : [];
 
-        // Pega o período mais recente (último do array) ou o primeiro com actualBalance
-        const periodo = periodos.length > 0 ? periodos[periodos.length - 1] : null;
+        // Pega o período mais recente (último do array)
+        const periodo   = periodos.length > 0 ? periodos[periodos.length - 1] : null;
         const nomeConta = periodo?.dsAccount || nome;
-        const valor     = extrairNumero(periodo || {}, 'actualBalance', 'ahAccountBalance', 'balance');
+        // actualBalance retornado em centavos → divide por 100
+        const valorCents = extrairNumero(periodo || {}, 'actualBalance', 'ahAccountBalance', 'balance');
+        const valor      = valorCents / 100;
 
-        console.log(`    ✓ "${nomeConta}" → actualBalance=${valor}`);
+        console.log(`    ✓ "${nomeConta}" → ${valorCents} centavos = R$ ${valor.toFixed(2)}`);
         classificarBanco(nomeConta, valor);
       } catch (eb) {
-        // Fallback: usa actualBalance da listagem de contas se disponível
-        const valorFallback = extrairNumero(item, 'actualBalance', 'actual_balance', 'bank_balance', 'balance');
-        console.log(`    ⚠ balances/${contaId} falhou (${eb.message.substring(0,100)}) — fallback="${nome}" valor=${valorFallback}`);
+        // Fallback: valor da listagem (também em centavos) ÷ 100
+        const valorCentsFallback = extrairNumero(item, 'actualBalance', 'actual_balance', 'bank_balance', 'balance');
+        const valorFallback      = valorCentsFallback / 100;
+        console.log(`    ⚠ balances/${contaId} (${eb.message.substring(0,100)}) — fallback="${nome}" R$${valorFallback.toFixed(2)}`);
         if (valorFallback > 0) classificarBanco(nome, valorFallback);
       }
     }
