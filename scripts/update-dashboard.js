@@ -178,6 +178,10 @@ async function loginControlle(email, password) {
 }
 
 // ── 2. Buscar saldos ──────────────────────────────────────────────────────────
+// Endpoints reais do app (confirmados via bundle):
+//   GET report/v1/dashboard/balances?idEntity=X        → array de contas c/ actualBalance/dsAccount
+//   GET report/v1/managerDashboard/generalBalance       → saldo geral {balances:{generalBalance}}
+// idEntity é passado como QUERY PARAM, não como header
 async function buscarSaldos(token, idEntity) {
   console.log('→ Buscando saldos...');
 
@@ -185,7 +189,8 @@ async function buscarSaldos(token, idEntity) {
     'Itaú':      ['itau', 'itaú', 'unibanco'],
     'Santander': ['santander'],
     'BNB':       ['nordeste', 'bnb'],
-    'Caixa':     ['caixa'],
+    'Banco do Nordeste': ['nordeste', 'bnb'],
+    'Caixa':     ['caixa', 'cef'],
     'Sicoob':    ['sicoob', 'sicredi']
   };
 
@@ -195,60 +200,67 @@ async function buscarSaldos(token, idEntity) {
     const nome = (nomeRaw || '').toLowerCase();
     for (const [banco, kws] of Object.entries(bankMap)) {
       if (kws.some(k => nome.includes(k))) {
-        if (saldos[banco] === null) saldos[banco] = valor;
+        const chave = ['Itaú','Santander','BNB','Caixa','Sicoob'].find(b =>
+          bankMap[b] === bankMap[banco] || b === banco
+        ) || banco;
+        if (saldos[chave] === null) saldos[chave] = valor;
         return true;
       }
     }
     return false;
   }
 
-  // Tenta endpoint de balances
-  for (const ep of ['report/v1/dashboard/balances', 'report/v1/managerDashboard/balances']) {
-    try {
-      const result = await apiGet(CONTROLLE_API, ep, token, idEntity);
-      console.log(`  ${ep} →`, JSON.stringify(result).substring(0, 300));
-      const items = result?.results ?? result?.data ?? result;
-      const arr   = Array.isArray(items) ? items : Object.values(typeof items === 'object' && items !== null ? items : {});
-      for (const item of arr) {
-        const nome   = item.name || item.nome || item.description || item.ds_name || '';
-        const saldo  = typeof item.balance === 'number' ? item.balance
-                     : typeof item.saldo   === 'number' ? item.saldo
-                     : parseBR(item.balance ?? item.saldo ?? '') ?? 0;
-        if (nome.toLowerCase().includes('geral') || item.type === 'TOTAL') {
-          if (saldos.saldoGeral === null) saldos.saldoGeral = saldo;
-        } else {
-          classificarBanco(nome, saldo);
-        }
-      }
-      if (Object.values(saldos).some(v => v !== null)) break;
-    } catch (e) {
-      console.log(`  ⚠ ${ep}: ${e.message.substring(0, 120)}`);
+  // ── Saldo geral via managerDashboard/generalBalance ──
+  try {
+    const r = await apiGet(CONTROLLE_API, 'report/v1/managerDashboard/generalBalance', token, null,
+                           { idEntity });
+    console.log('  generalBalance →', JSON.stringify(r).substring(0, 300));
+    // Estrutura: { balances: { generalBalance: N, ... } }
+    const gb = r?.balances?.generalBalance ?? r?.balances?.generalBalanceNew ??
+               r?.result?.balances?.generalBalance ?? r?.generalBalance ?? r?.result;
+    if (typeof gb === 'number') {
+      saldos.saldoGeral = gb;
+      console.log(`  ✓ saldoGeral: ${gb}`);
+    } else if (r?.results !== undefined) {
+      // pode ser array direto
+      const arr = Array.isArray(r.results) ? r.results : [];
+      const total = arr.find(i => (i.name || i.dsAccount || '').toLowerCase().includes('total') ||
+                                  (i.name || i.dsAccount || '').toLowerCase().includes('geral'));
+      if (total) saldos.saldoGeral = total.actualBalance ?? total.balance ?? 0;
     }
+  } catch (e) {
+    console.log(`  ⚠ managerDashboard/generalBalance: ${e.message.substring(0, 150)}`);
   }
 
-  // Fallback: busca contas individuais
-  const faltando = Object.entries(saldos).filter(([k, v]) => k !== 'saldoGeral' && v === null);
-  if (faltando.length > 0) {
-    console.log('  Tentando fallback em transaction/v1/accounts...');
-    try {
-      const r    = await apiGet(CONTROLLE_API, 'transaction/v1/accounts', token, idEntity, { limit: 100, status: 1 });
-      const arr  = r?.results ?? r?.data ?? r ?? [];
-      for (const item of (Array.isArray(arr) ? arr : [])) {
-        const nome  = item.name || item.nome || item.description || '';
-        const saldo = typeof item.balance === 'number' ? item.balance : parseBR(String(item.balance ?? '')) ?? 0;
-        classificarBanco(nome, saldo);
-      }
-    } catch (e) {
-      console.log(`  ⚠ fallback accounts: ${e.message.substring(0, 120)}`);
+  // ── Saldos por conta via dashboard/balances ──
+  try {
+    const r = await apiGet(CONTROLLE_API, 'report/v1/dashboard/balances', token, null,
+                           { idEntity });
+    console.log('  dashboard/balances →', JSON.stringify(r).substring(0, 400));
+    // Estrutura: { results: [ { idAccount, dsAccount, actualBalance, ... } ] }
+    const arr = r?.results ?? r?.data ?? r;
+    const lista = Array.isArray(arr) ? arr : [];
+    for (const item of lista) {
+      const nome  = item.dsAccount || item.name || item.nome || item.description || '';
+      const valor = typeof item.actualBalance === 'number' ? item.actualBalance
+                  : typeof item.balance       === 'number' ? item.balance
+                  : parseBR(String(item.actualBalance ?? item.balance ?? '')) ?? 0;
+      classificarBanco(nome, valor);
+      console.log(`  conta: "${nome}" → ${valor}`);
     }
+  } catch (e) {
+    console.log(`  ⚠ dashboard/balances: ${e.message.substring(0, 150)}`);
   }
 
   // Garante que nenhum banco fique null
-  for (const banco of Object.keys(bankMap)) {
+  for (const banco of ['Itaú', 'Santander', 'BNB', 'Caixa', 'Sicoob']) {
     if (saldos[banco] === null) { saldos[banco] = 0; console.log(`  ⚠ ${banco} não encontrado — usando 0`); }
   }
   if (saldos.saldoGeral === null) {
-    saldos.saldoGeral = Object.entries(saldos).filter(([k]) => k !== 'saldoGeral').reduce((s, [, v]) => s + v, 0);
+    saldos.saldoGeral = Object.entries(saldos)
+      .filter(([k]) => k !== 'saldoGeral')
+      .reduce((s, [, v]) => s + (v || 0), 0);
+    console.log(`  saldoGeral calculado pela soma: ${saldos.saldoGeral}`);
   }
 
   console.log('✓ Saldos:', JSON.stringify(saldos));
@@ -256,31 +268,53 @@ async function buscarSaldos(token, idEntity) {
 }
 
 // ── 3. Buscar DRE ─────────────────────────────────────────────────────────────
+// Endpoints reais confirmados via bundle:
+//   GET /company/redirect/financial/report/dre    (GATEWAY, com Bearer + startDate/endDate)
+//   GET /plan-account/v1/dreGroups                (API, sem params — retorna grupos DRE)
 async function buscarDRE(token, idEntity) {
   console.log('→ Buscando DRE...');
   const ano       = new Date().getFullYear();
   const startDate = `${ano}-01-01`;
   const endDate   = `${ano}-12-31`;
 
-  const endpoints = [
-    { base: CONTROLLE_API, ep: 'report/v1/dre',               params: { startDate, endDate } },
-    { base: CONTROLLE_API, ep: 'report/v1/dashboard/dre',      params: { startDate, endDate } },
-    { base: CONTROLLE_GW,  ep: 'report/v1/dre',               params: { startDate, endDate } },
-    { base: CONTROLLE_API, ep: 'report/v1/cashflow/summary',  params: { startDate, endDate } },
-  ];
+  // Tentativa 1: endpoint DRE do gateway (company/redirect/financial/report/dre)
+  try {
+    const r = await apiGet(CONTROLLE_GW, 'company/redirect/financial/report/dre',
+                           token, idEntity, { startDate, endDate });
+    console.log('  company/redirect/financial/report/dre →', JSON.stringify(r).substring(0, 400));
+    const dre = extrairDREDaResposta(r);
+    if (dre.receita && dre.receita > 0) {
+      console.log('✓ DRE (gateway):', JSON.stringify(dre));
+      return dre;
+    }
+  } catch (e) {
+    console.log(`  ⚠ company/redirect/financial/report/dre: ${e.message.substring(0, 150)}`);
+  }
 
-  for (const { base, ep, params } of endpoints) {
+  // Tentativa 2: managerDashboard endpoints com startDate/endDate
+  const endpoints2 = [
+    { base: CONTROLLE_API, ep: 'report/v1/managerDashboard/invoicing',           params: { startDate, endDate } },
+    { base: CONTROLLE_API, ep: 'report/v1/managerDashboard/profitability',        params: { startDate, endDate } },
+    { base: CONTROLLE_API, ep: 'report/v1/managerDashboard/contributionMargin',   params: { startDate, endDate } },
+  ];
+  let receita = null, resultado = null;
+  for (const { base, ep, params } of endpoints2) {
     try {
-      const result = await apiGet(base, ep, token, idEntity, params);
-      console.log(`  ${ep} →`, JSON.stringify(result).substring(0, 300));
-      const dre = extrairDREDaResposta(result);
-      if (dre.receita && dre.receita > 0) {
-        console.log('✓ DRE:', JSON.stringify(dre));
-        return dre;
-      }
+      const r = await apiGet(base, ep, token, idEntity, params);
+      console.log(`  ${ep} →`, JSON.stringify(r).substring(0, 200));
+      const result = r?.result ?? r?.data ?? r;
+      if (ep.includes('invoicing') && typeof result?.totalRevenue === 'number')   receita   = result.totalRevenue;
+      if (ep.includes('invoicing') && typeof result?.revenue       === 'number')   receita   = result.revenue;
+      if (ep.includes('profitability') && typeof result?.result    === 'number')   resultado = result.result;
+      if (ep.includes('profitability') && typeof result?.profit    === 'number')   resultado = result.profit;
+      if (ep.includes('contributionMargin') && !resultado && typeof result?.value === 'number') resultado = result.value;
     } catch (e) {
       console.log(`  ⚠ ${ep}: ${e.message.substring(0, 120)}`);
     }
+  }
+  if (receita && receita > 0) {
+    console.log('✓ DRE (managerDashboard):', { receita, resultado });
+    return { receita, resultado };
   }
 
   console.log('  ⚠ DRE não disponível — continuando sem atualizar receita/resultado.');
