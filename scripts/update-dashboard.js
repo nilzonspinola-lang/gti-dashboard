@@ -256,9 +256,16 @@ async function buscarSaldos(token, idEntity) {
 
     for (const item of arr) {
       const ativo = item.status === 1 || item.status === true || item.status === undefined;
-      const nome  = item.dsAccount || item.ds_account || item.name || item.nome || item.description || '';
-      const valor = extrairNumero(item, 'actualBalance', 'actual_balance', 'balance', 'saldo');
-      console.log(`    conta: "${nome}" status=${item.status} ativo=${ativo} valor=${valor}`);
+      // campos confirmados via log: description_account (nome), bank_balance ou actualBalance (saldo)
+      const nome  = item.description_account || item.dsAccount || item.ds_account ||
+                    item.name || item.nome || item.description || '';
+      const valor = extrairNumero(item, 'bank_balance', 'actualBalance', 'actual_balance', 'balance', 'saldo');
+      // Log completo dos campos numéricos para diagnóstico
+      const camposNum = Object.entries(item)
+        .filter(([,v]) => typeof v === 'number' || (typeof v === 'string' && !isNaN(parseFloat(v))))
+        .map(([k,v]) => `${k}=${v}`)
+        .join(', ');
+      console.log(`    conta: "${nome}" status=${item.status} | nums: ${camposNum}`);
       if (ativo) classificarBanco(nome, valor);
     }
   } catch (e) {
