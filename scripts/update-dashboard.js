@@ -244,29 +244,49 @@ async function buscarSaldos(token, idEntity) {
     console.log(`  ⚠ dashboard/balances: ${e.message.substring(0, 200)}`);
   }
 
-  // ── B. Saldos por conta: account/v1/accounts ─────────────────────────────
-  // Resposta: { results: [ { dsAccount, actualBalance, status, ... } ] }
+  // ── B. Saldos por conta: account/v1/accounts → depois balances/{id} ─────
+  // account/v1/accounts  → lista com id + description_account (nome)
+  // account/v1/accounts/balances/{id} → { dsAccount, actualBalance, ... }
   try {
     const r = await apiGet(CONTROLLE_API, 'account/v1/accounts', token, idEntity);
-    console.log('  [account/v1/accounts]', JSON.stringify(r).substring(0, 600));
-
     const lista = r?.results ?? r?.data ?? r;
     const arr   = Array.isArray(lista) ? lista : [];
-    console.log(`  → ${arr.length} conta(s) retornada(s)`);
+    console.log(`  → ${arr.length} conta(s) em account/v1/accounts`);
 
     for (const item of arr) {
       const ativo = item.status === 1 || item.status === true || item.status === undefined;
-      // campos confirmados via log: description_account (nome), bank_balance ou actualBalance (saldo)
       const nome  = item.description_account || item.dsAccount || item.ds_account ||
                     item.name || item.nome || item.description || '';
-      const valor = extrairNumero(item, 'bank_balance', 'actualBalance', 'actual_balance', 'balance', 'saldo');
-      // Log completo dos campos numéricos para diagnóstico
-      const camposNum = Object.entries(item)
-        .filter(([,v]) => typeof v === 'number' || (typeof v === 'string' && !isNaN(parseFloat(v))))
-        .map(([k,v]) => `${k}=${v}`)
-        .join(', ');
-      console.log(`    conta: "${nome}" status=${item.status} | nums: ${camposNum}`);
-      if (ativo) classificarBanco(nome, valor);
+      const contaId = item.id || item.id_account || item.idAccount;
+
+      if (!ativo || !contaId) {
+        console.log(`    ⚠ conta "${nome}" ignorada (status=${item.status} id=${contaId})`);
+        continue;
+      }
+
+      // Busca saldo real via endpoint individual
+      try {
+        const rb = await apiGet(CONTROLLE_API, `account/v1/accounts/balances/${contaId}`, token, idEntity);
+        console.log(`    [balances/${contaId}]`, JSON.stringify(rb).substring(0, 300));
+
+        // Resposta: array de períodos com { dsAccount, actualBalance, ahAccountBalance, ... }
+        const periodos = Array.isArray(rb?.results) ? rb.results
+                       : Array.isArray(rb)          ? rb
+                       : rb?.results ? [rb.results] : [];
+
+        // Pega o período mais recente (último do array) ou o primeiro com actualBalance
+        const periodo = periodos.length > 0 ? periodos[periodos.length - 1] : null;
+        const nomeConta = periodo?.dsAccount || nome;
+        const valor     = extrairNumero(periodo || {}, 'actualBalance', 'ahAccountBalance', 'balance');
+
+        console.log(`    ✓ "${nomeConta}" → actualBalance=${valor}`);
+        classificarBanco(nomeConta, valor);
+      } catch (eb) {
+        // Fallback: usa actualBalance da listagem de contas se disponível
+        const valorFallback = extrairNumero(item, 'actualBalance', 'actual_balance', 'bank_balance', 'balance');
+        console.log(`    ⚠ balances/${contaId} falhou (${eb.message.substring(0,100)}) — fallback="${nome}" valor=${valorFallback}`);
+        if (valorFallback > 0) classificarBanco(nome, valorFallback);
+      }
     }
   } catch (e) {
     console.log(`  ⚠ account/v1/accounts: ${e.message.substring(0, 200)}`);
