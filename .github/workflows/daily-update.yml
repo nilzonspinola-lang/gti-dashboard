@@ -5,10 +5,6 @@ on:
     # 07:00 Brasília (UTC-3) = 10:00 UTC. Roda todo dia.
     - cron: '0 10 * * *'
   workflow_dispatch: {}  # permite disparo manual pela aba Actions
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/update-dashboard.js'  # roda ao atualizar o script
 
 permissions:
   contents: write  # necessário para commit/push do index.html e data.json
