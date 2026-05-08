@@ -1,5 +1,6 @@
 /**
  * GTI Dashboard - Atualização diária via API REST do Controlle
+ * Última execução: 2026-05-08T14:35:35.986Z
  *
  * Fluxo confirmado (via análise do bundle JS do Controlle):
  * 1. POST /company/login  (Gateway) → {accessToken, refreshToken}
