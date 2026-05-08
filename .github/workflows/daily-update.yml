@@ -2,8 +2,14 @@ name: GTI Dashboard - Atualização Diária
 
 on:
   schedule:
-    # 07:00 Brasília (UTC-3) = 10:00 UTC. Roda todo dia.
+    # Tentativa 1 — 07:00 Brasília (10:00 UTC)
     - cron: '0 10 * * *'
+    # Tentativa 2 — 08:00 Brasília (11:00 UTC) — retry se a 1ª falhou/atrasou
+    - cron: '0 11 * * *'
+    # Tentativa 3 — 09:00 Brasília (12:00 UTC) — retry se a 2ª falhou/atrasou
+    - cron: '0 12 * * *'
+    # Tentativa 4 — 10:00 Brasília (13:00 UTC) — retry final do dia
+    - cron: '0 13 * * *'
   workflow_dispatch: {}  # permite disparo manual pela aba Actions
   push:
     branches: [main]
@@ -11,7 +17,7 @@ on:
       - 'scripts/update-dashboard.js'
 
 permissions:
-  contents: write  # necessário para commit/push do index.html e data.json
+  contents: write
 
 concurrency:
   group: gti-dashboard-update
@@ -20,7 +26,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repo
@@ -31,15 +37,49 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Verificar se já foi atualizado hoje
+        id: check
+        run: |
+          TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
+          LAST=$(node -e "
+            const fs = require('fs');
+            try {
+              const d = JSON.parse(fs.readFileSync('data.json','utf8'));
+              console.log((d.data_coleta || '').substring(0,10));
+            } catch(e) { console.log(''); }
+          ")
+          echo "Hoje: $TODAY | Última atualização: $LAST"
+          if [ "$LAST" = "$TODAY" ]; then
+            echo "ja_atualizado=true" >> $GITHUB_OUTPUT
+            echo "✅ Dashboard já foi atualizado hoje ($TODAY) — pulando."
+          else
+            echo "ja_atualizado=false" >> $GITHUB_OUTPUT
+            echo "🔄 Dashboard desatualizado ($LAST) — iniciando atualização para $TODAY."
+          fi
+
       - name: Run dashboard update (via API REST)
+        if: steps.check.outputs.ja_atualizado == 'false'
         working-directory: scripts
         env:
           CONTROLLE_EMAIL:    ${{ secrets.CONTROLLE_EMAIL }}
           CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
           TZ: America/Sao_Paulo
-        run: node update-dashboard.js
+        run: |
+          # Tenta até 3 vezes com intervalo de 30s em caso de erro de rede
+          for i in 1 2 3; do
+            echo "--- Tentativa $i de 3 ---"
+            node update-dashboard.js && break
+            if [ $i -lt 3 ]; then
+              echo "⚠ Falhou — aguardando 30s antes de tentar novamente..."
+              sleep 30
+            else
+              echo "✗ Todas as tentativas falharam."
+              exit 1
+            fi
+          done
 
       - name: Commit and push changes
+        if: steps.check.outputs.ja_atualizado == 'false'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
