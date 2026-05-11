@@ -1,0 +1,106 @@
+name: GTI Worker — Deploy Cloudflare Worker
+
+# Executa no push para main quando arquivos do Worker mudam
+# OU permite disparo manual via interface do GitHub Actions
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente de deploy'
+        required: false
+        default: 'production'
+        type: choice
+        options: [production]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-worker-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: "🚀 Deploy Worker → Cloudflare"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ── Valida que os arquivos essenciais existem ─────────────────────────
+      - name: Verificar arquivos do Worker
+        run: |
+          echo "📁 Conteúdo do diretório cloudflare-worker:"
+          ls -la cloudflare-worker/
+          test -f cloudflare-worker/worker.js   || (echo "❌ worker.js não encontrado!"  && exit 1)
+          test -f cloudflare-worker/wrangler.toml || (echo "❌ wrangler.toml não encontrado!" && exit 1)
+          echo "✅ Arquivos do Worker OK"
+
+      # ── Deploy via Wrangler CLI ───────────────────────────────────────────
+      - name: Deploy Cloudflare Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:   ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare-worker
+          wranglerVersion: '3'
+          command: deploy
+
+      # ── Configura secrets do Worker (somente quando disponíveis) ─────────
+      # Os secrets abaixo são opcionais no workflow — podem ser configurados
+      # manualmente via `wrangler secret put` ou pelo Cloudflare Dashboard.
+      # Para configurar via CI, adicione os secrets no GitHub e descomente.
+      #
+      # - name: Configurar GITHUB_TOKEN no Worker
+      #   uses: cloudflare/wrangler-action@v3
+      #   with:
+      #     apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #     accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      #     workingDirectory: cloudflare-worker
+      #     command: secret put GITHUB_TOKEN
+      #   env:
+      #     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # ── Verifica se o Worker está online após deploy ──────────────────────
+      - name: Verificar Worker online (smoke test)
+        run: |
+          echo "⏳ Aguardando propagação do deploy (15s)..."
+          sleep 15
+
+          # Tenta obter o status do Worker (endpoint /status)
+          # Substitua pela URL do seu Worker quando souber o nome definitivo
+          WORKER_URL="https://gti-dashboard-robo.nilzonspinola-lang.workers.dev/status"
+          echo "🔍 Verificando: $WORKER_URL"
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$WORKER_URL" || echo "000")
+          echo "📡 HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Worker online e respondendo corretamente."
+          elif [ "$HTTP_CODE" = "000" ]; then
+            echo "⚠️  Worker não respondeu (timeout). Verifique o Cloudflare Dashboard."
+            echo "   URL testada: $WORKER_URL"
+          else
+            echo "⚠️  Worker retornou HTTP $HTTP_CODE. Verifique os logs no Cloudflare Dashboard."
+          fi
+
+      # ── Relatório final ───────────────────────────────────────────────────
+      - name: Relatório de deploy
+        if: always()
+        run: |
+          echo "=================================================="
+          echo "  🤖 DEPLOY DO CLOUDFLARE WORKER — RELATÓRIO"
+          echo "=================================================="
+          echo "  Repositório : ${{ github.repository }}"
+          echo "  Branch      : ${{ github.ref_name }}"
+          echo "  Commit      : ${{ github.sha }}"
+          echo "  Acionado por: ${{ github.actor }}"
+          echo "  Data/Hora   : $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
+          echo "  Worker URL  : https://gti-dashboard-robo.nilzonspinola-lang.workers.dev"
+          echo "=================================================="

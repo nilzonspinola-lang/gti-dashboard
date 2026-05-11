@@ -1,0 +1,31 @@
+# .dev.vars.example — Variáveis de ambiente para desenvolvimento local
+#
+# COMO USAR:
+#   cp .dev.vars.example .dev.vars
+#   # Preencha os valores reais em .dev.vars (nunca commite esse arquivo!)
+#   wrangler dev   ← lê automaticamente o .dev.vars
+#
+# O arquivo .dev.vars está no .gitignore — os valores reais NUNCA
+# devem ser commitados no repositório.
+#
+# Em produção, use:
+#   wrangler secret put NOME_DA_VARIAVEL
+# ou configure pelo Cloudflare Dashboard → Workers → Settings → Variables
+
+# ── Token GitHub (PAT) ────────────────────────────────────────────────────────
+# Crie em: https://github.com/settings/tokens → "Fine-grained" ou "Classic"
+# Permissões necessárias:  repo (read) + actions:write
+GITHUB_TOKEN=ghp_SUBSTITUA_PELO_SEU_TOKEN_REAL
+
+# ── Configuração do repositório (pode deixar igual) ──────────────────────────
+GITHUB_REPO=nilzonspinola-lang/gti-dashboard
+WORKFLOW_ID=daily-update.yml
+DATA_JSON_URL=https://raw.githubusercontent.com/nilzonspinola-lang/gti-dashboard/main/data.json
+
+# ── Alertas por e-mail via Resend ─────────────────────────────────────────────
+# Crie conta gratuita em: https://resend.com  (3.000 e-mails/mês grátis)
+# Crie uma API Key em: https://resend.com/api-keys
+RESEND_API_KEY=re_SUBSTITUA_PELA_SUA_CHAVE_RESEND
+
+# ── E-mail destino dos alertas críticos ──────────────────────────────────────
+ALERT_EMAIL_TO=seu-email@exemplo.com
