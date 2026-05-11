@@ -46,11 +46,13 @@ jobs:
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken:   ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken:        ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: cloudflare-worker
-          wranglerVersion: '3'
           command: deploy
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # ── Configura secrets do Worker (somente quando disponíveis) ─────────
       # Os secrets abaixo são opcionais no workflow — podem ser configurados
@@ -75,7 +77,7 @@ jobs:
 
           # Tenta obter o status do Worker (endpoint /status)
           # Substitua pela URL do seu Worker quando souber o nome definitivo
-          WORKER_URL="https://gti-dashboard-robo.nilzonspinola-lang.workers.dev/status"
+          WORKER_URL="https://gti-dashboard-robo.nilzon-spinola.workers.dev/status"
           echo "🔍 Verificando: $WORKER_URL"
 
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$WORKER_URL" || echo "000")
@@ -102,5 +104,5 @@ jobs:
           echo "  Commit      : ${{ github.sha }}"
           echo "  Acionado por: ${{ github.actor }}"
           echo "  Data/Hora   : $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
-          echo "  Worker URL  : https://gti-dashboard-robo.nilzonspinola-lang.workers.dev"
+          echo "  Worker URL  : https://gti-dashboard-robo.nilzon-spinola.workers.dev"
           echo "=================================================="
