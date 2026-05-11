@@ -3,4 +3,12 @@ scripts/debug-*.png
 scripts/playwright-report/
 scripts/test-results/
 .env
+
+# macOS
 .DS_Store
+
+# Wrangler / Cloudflare Workers
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example

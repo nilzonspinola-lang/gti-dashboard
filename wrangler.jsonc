@@ -1,0 +1,25 @@
+{
+  // wrangler.jsonc — GTI Dashboard — Cloudflare Pages (static site)
+  // Este arquivo configura o deploy do dashboard estático via Cloudflare Pages.
+  // O Worker autônomo (Agente Robô) vive em cloudflare-worker/wrangler.toml.
+  //
+  // Gerado automaticamente pelo Cloudflare Workers & Pages bot em 2026-05-06
+  // e integrado ao monorepo em 2026-05-11.
+  //
+  // Documentação: https://developers.cloudflare.com/pages/configuration/wrangler/
+
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gti-dashboard",
+  "compatibility_date": "2026-05-06",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Serve os arquivos estáticos do dashboard (index.html, data.json, CNAME)
+  "assets": {
+    "directory": "."
+  },
+
+  // Ativa métricas e logs no Cloudflare Dashboard
+  "observability": {
+    "enabled": true
+  }
+}
