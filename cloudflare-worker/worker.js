@@ -13,12 +13,10 @@
  *   WORKFLOW_ID      — daily-update.yml
  *   ALERT_EMAIL_TO   — e-mail para alertas críticos
  *   RESEND_API_KEY   — chave da API Resend (e-mail gratuito)
- *   DATA_JSON_URL    — URL do data.json raw do repositório
+ *
+ * CORREÇÃO 2026-05-12: usa API GitHub em vez de raw.githubusercontent
+ * para evitar cache CDN que atrasava detecção de atualização.
  */
-
-// ─── Configuração ────────────────────────────────────────────────────────────
-const DATA_JSON_URL =
-  'https://raw.githubusercontent.com/nilzonspinola-lang/gti-dashboard/main/data.json';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function nowBrasilia() {
@@ -36,16 +34,23 @@ function todayBrasilia() {
   });
 }
 
-// ─── Verificar se dashboard está atualizado ───────────────────────────────────
-async function checkDashboard() {
+// ─── Verificar se dashboard está atualizado (via API GitHub — sem cache) ──────
+async function checkDashboard(env) {
   try {
-    const res = await fetch(DATA_JSON_URL + '?t=' + Date.now(), {
-      headers: { 'Cache-Control': 'no-cache' }
+    // Usa a API REST do GitHub que sempre retorna dados frescos (sem CDN cache)
+    const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/data.json`;
+    const res = await fetch(url, {
+      headers: {
+        'Authorization':        `Bearer ${env.GITHUB_TOKEN}`,
+        'Accept':               'application/vnd.github.raw+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Cache-Control':        'no-store',
+      }
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    if (!res.ok) throw new Error(`API GitHub HTTP ${res.status}`);
+    const data       = await res.json();
     const lastUpdate = (data.data_coleta || '').substring(0, 10); // DD/MM/YYYY
-    const today     = todayBrasilia();
+    const today      = todayBrasilia();
     return {
       ok:         lastUpdate === today,
       lastUpdate,
@@ -63,9 +68,9 @@ async function dispatchWorkflow(env) {
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
-      'Accept':        'application/vnd.github+json',
-      'Content-Type':  'application/json',
+      'Authorization':        `Bearer ${env.GITHUB_TOKEN}`,
+      'Accept':               'application/vnd.github+json',
+      'Content-Type':         'application/json',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     body: JSON.stringify({ ref: 'main' }),
@@ -83,7 +88,7 @@ async function sendAlert(env, subject, html) {
       'Content-Type':  'application/json',
     },
     body: JSON.stringify({
-      from:    'GTI Robô <robo@gti-g.com>',
+      from:    'GTI Robô <onboarding@resend.dev>',
       to:      [env.ALERT_EMAIL_TO],
       subject,
       html,
@@ -98,9 +103,10 @@ async function runAgent(env) {
   const stamp = nowBrasilia();
   log.push(`🤖 Agente GTI iniciado: ${stamp}`);
 
-  // 1. Verifica status
-  const check = await checkDashboard();
+  // 1. Verifica status (via API GitHub — sempre fresco)
+  const check = await checkDashboard(env);
   log.push(`📊 Dashboard: última atualização="${check.lastUpdate}" | hoje="${check.today}"`);
+  if (check.error) log.push(`⚠️ Erro na verificação: ${check.error}`);
 
   if (check.ok) {
     log.push(`✅ OK — Dashboard atualizado hoje. Nenhuma ação necessária.`);
@@ -113,12 +119,10 @@ async function runAgent(env) {
   log.push(`🚀 Dispatch: HTTP ${dispatch.status} — ${dispatch.ok ? '✅ Enviado' : '❌ Falhou'}`);
 
   if (!dispatch.ok) {
-    // Token pode ter expirado — envia alerta crítico
     log.push(`🚨 CRÍTICO: Não conseguiu disparar o workflow!`);
     await sendAlert(env,
       '🚨 [GTI Dashboard] CRÍTICO — Robô não conseguiu disparar atualização!',
-      `
-      <h2>🚨 Alerta Crítico — GTI Dashboard</h2>
+      `<h2>🚨 Alerta Crítico — GTI Dashboard</h2>
       <p>O Agente Robô detectou que o dashboard está desatualizado mas <strong>não conseguiu disparar o workflow</strong>.</p>
       <table>
         <tr><td><b>Última atualização:</b></td><td>${check.lastUpdate}</td></tr>
@@ -126,11 +130,9 @@ async function runAgent(env) {
         <tr><td><b>Horário:</b></td><td>${stamp}</td></tr>
         <tr><td><b>Erro:</b></td><td>HTTP ${dispatch.status} — Token pode ter expirado</td></tr>
       </table>
-      <br>
-      <p>🔧 <b>Ação necessária:</b> Verifique o token WATCHDOG_TOKEN no GitHub Secrets e no Cloudflare Worker.</p>
+      <p>🔧 <b>Ação necessária:</b> Verifique o token GITHUB_TOKEN no Cloudflare Worker.</p>
       <p>🔗 <a href="https://github.com/${env.GITHUB_REPO}/actions">Ver Actions no GitHub</a></p>
-      <p>🌐 <a href="https://dashboard.gti-g.com">Ver Dashboard</a></p>
-      `
+      <p>🌐 <a href="https://dashboard.gti-g.com">Ver Dashboard</a></p>`
     );
     return { status: 'critical', log };
   }
@@ -139,15 +141,14 @@ async function runAgent(env) {
   log.push(`⏳ Aguardando 90s para o workflow concluir...`);
   await new Promise(r => setTimeout(r, 90_000));
 
-  const recheck = await checkDashboard();
+  const recheck = await checkDashboard(env);
   log.push(`🔍 Re-verificação: "${recheck.lastUpdate}" vs hoje "${recheck.today}"`);
 
   if (recheck.ok) {
     log.push(`✅ RESOLVIDO — Dashboard atualizado após ação emergencial!`);
     await sendAlert(env,
       '✅ [GTI Dashboard] Atualização emergencial concluída com sucesso',
-      `
-      <h2>✅ GTI Dashboard — Ação Emergencial Bem-sucedida</h2>
+      `<h2>✅ GTI Dashboard — Ação Emergencial Bem-sucedida</h2>
       <p>O Agente Robô detectou que o workflow principal havia falhado e tomou ação corretiva.</p>
       <table>
         <tr><td><b>Situação detectada:</b></td><td>Dashboard desatualizado (${check.lastUpdate})</td></tr>
@@ -156,10 +157,8 @@ async function runAgent(env) {
         <tr><td><b>Saldo atual:</b></td><td>R$ ${(recheck.saldoGeral || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</td></tr>
         <tr><td><b>Horário:</b></td><td>${stamp}</td></tr>
       </table>
-      <br>
       <p>Nenhuma ação sua é necessária. 🤖</p>
-      <p>🌐 <a href="https://dashboard.gti-g.com">Ver Dashboard</a></p>
-      `
+      <p>🌐 <a href="https://dashboard.gti-g.com">Ver Dashboard</a></p>`
     );
     return { status: 'resolved', log };
   }
@@ -168,30 +167,27 @@ async function runAgent(env) {
   log.push(`🚨 CRÍTICO — Dashboard ainda desatualizado após ação emergencial!`);
   await sendAlert(env,
     '🚨 [GTI Dashboard] CRÍTICO — Falhou mesmo após ação emergencial!',
-    `
-    <h2>🚨 Alerta Crítico — GTI Dashboard</h2>
+    `<h2>🚨 Alerta Crítico — GTI Dashboard</h2>
     <p>O Agente Robô tentou corrigir mas o dashboard <strong>continua desatualizado</strong>.</p>
     <table>
       <tr><td><b>Última atualização:</b></td><td>${check.lastUpdate}</td></tr>
       <tr><td><b>Esperado:</b></td><td>${check.today}</td></tr>
       <tr><td><b>Horário do alerta:</b></td><td>${stamp}</td></tr>
     </table>
-    <br>
     <p>🔧 <b>Verifique:</b></p>
     <ul>
       <li>Secrets CONTROLLE_EMAIL e CONTROLLE_PASSWORD no GitHub</li>
       <li>Se a API do Controlle está acessível</li>
       <li>Logs em: <a href="https://github.com/${env.GITHUB_REPO}/actions">GitHub Actions</a></li>
     </ul>
-    <p>🌐 <a href="https://dashboard.gti-g.com">Ver Dashboard</a></p>
-    `
+    <p>🌐 <a href="https://dashboard.gti-g.com">Ver Dashboard</a></p>`
   );
   return { status: 'critical_unresolved', log };
 }
 
 // ─── Entry point do Worker ────────────────────────────────────────────────────
 export default {
-  // Cron trigger — executa a cada hora entre 07:00 e 14:00 Brasília
+  // Cron trigger — executa a cada hora entre 10:00 e 16:00 UTC (07:00–13:00 BRT)
   async scheduled(event, env, ctx) {
     const result = await runAgent(env);
     console.log(JSON.stringify({ event: 'scheduled', ...result }));
@@ -203,7 +199,7 @@ export default {
 
     // GET /status — retorna status atual sem agir
     if (url.pathname === '/status') {
-      const check = await checkDashboard();
+      const check = await checkDashboard(env);
       return new Response(JSON.stringify({
         agente:      '🤖 GTI Dashboard Robô',
         horario:     nowBrasilia(),
@@ -211,6 +207,7 @@ export default {
         ultimaData:  check.lastUpdate,
         hoje:        check.today,
         saldoGeral:  check.saldoGeral,
+        erro:        check.error || undefined,
       }, null, 2), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -225,14 +222,14 @@ export default {
     }
 
     // Default — página de status simples
-    const check = await checkDashboard();
+    const check = await checkDashboard(env);
     const statusColor = check.ok ? '#00c853' : '#ff5252';
     const statusIcon  = check.ok ? '✅' : '⚠️';
-    return new Response(`
-      <!DOCTYPE html>
+    return new Response(`<!DOCTYPE html>
       <html lang="pt-BR">
       <head>
         <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="60">
         <title>🤖 GTI Robô — Status</title>
         <style>
           body { font-family: monospace; background: #0d1117; color: #e6edf3; padding: 40px; }
@@ -241,6 +238,7 @@ export default {
           table { border-collapse: collapse; margin-top: 20px; }
           td, th { padding: 8px 16px; border: 1px solid #30363d; }
           th { background: #161b22; color: #7CDA24; }
+          .note { margin-top: 20px; color: #8b949e; font-size: 12px; }
         </style>
       </head>
       <body>
@@ -253,10 +251,8 @@ export default {
           <tr><td>Hoje esperado</td><td>${check.today}</td></tr>
           <tr><td>Saldo geral</td><td>R$ ${(check.saldoGeral || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</td></tr>
         </table>
-        <br>
-        <a href="/status" style="color:#7CDA24">Ver JSON completo</a>
+        <p class="note">Página atualiza automaticamente a cada 60s · <a href="/status" style="color:#7CDA24">Ver JSON</a></p>
       </body>
-      </html>
-    `, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      </html>`, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
   }
 };

@@ -1,0 +1,38 @@
+name: GTI Dashboard - Keep Alive 🔄
+
+# Roda todo dia às 06:00 UTC (03:00 BRT) — ANTES de todos os outros workflows
+# Propósito: evitar que o GitHub suspenda os schedules por "inatividade"
+# O GitHub suspende schedules de repos sem commits há mais de 60 dias.
+# Este workflow faz um commit vazio para manter o repo "ativo".
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 03:00 BRT — antes do daily-update (07:00 BRT)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  keep-alive:
+    name: "🔄 Keep Alive — Mantém schedules ativos"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Keep-alive commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Atualiza arquivo de keep-alive com timestamp
+          echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
+
+          git add .github/keep-alive.txt
+          git commit -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y')" || echo "Nada a commitar"
+          git push || echo "Push não necessário"
+
+          echo "✅ Keep-alive executado — schedules do GitHub Actions mantidos ativos."
