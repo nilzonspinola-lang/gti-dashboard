@@ -65,7 +65,6 @@ jobs:
           CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
           TZ: America/Sao_Paulo
         run: |
-          # Tenta até 3 vezes com intervalo de 30s em caso de erro de rede
           for i in 1 2 3; do
             echo "--- Tentativa $i de 3 ---"
             node update-dashboard.js && break
@@ -90,3 +89,16 @@ jobs:
           fi
           git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
           git push
+
+      - name: 🔄 Keep-alive embutido (atualiza timestamp mesmo se já atualizado)
+        if: steps.check.outputs.ja_atualizado == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Mesmo quando pula a atualização, garante commit para manter schedules ativos
+          echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
+          git add .github/keep-alive.txt
+          git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y')" || true
+          git push || true
+          echo "✅ Keep-alive garantido pelo daily-update."

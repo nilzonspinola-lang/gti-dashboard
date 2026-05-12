@@ -1,9 +1,12 @@
 name: GTI Dashboard - Keep Alive 🔄
 
 # Roda todo dia às 06:00 UTC (03:00 BRT) — ANTES de todos os outros workflows
-# Propósito: evitar que o GitHub suspenda os schedules por "inatividade"
-# O GitHub suspende schedules de repos sem commits há mais de 60 dias.
-# Este workflow faz um commit vazio para manter o repo "ativo".
+# Propósito duplo:
+#   1. Faz commit real todo dia → impede GitHub de suspender schedules
+#   2. Se o daily-update ainda não rodou hoje, dispara ele imediatamente
+#
+# IMPORTANTE: O GitHub suspende schedules após 60 dias sem atividade de PUSH.
+# Commits feitos pelo github-actions[bot] contam como atividade → resolve o problema.
 
 on:
   schedule:
@@ -12,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   keep-alive:
@@ -23,16 +27,50 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Keep-alive commit
+      - name: 📝 Commit de keep-alive (garante atividade diária no repo)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Atualiza arquivo de keep-alive com timestamp
-          echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
+          TIMESTAMP=$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')
+          echo "$TIMESTAMP" > .github/keep-alive.txt
 
           git add .github/keep-alive.txt
-          git commit -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y')" || echo "Nada a commitar"
-          git push || echo "Push não necessário"
 
-          echo "✅ Keep-alive executado — schedules do GitHub Actions mantidos ativos."
+          # Força commit mesmo que o conteúdo seja igual (--allow-empty garante push)
+          git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y')"
+          git push
+
+          echo "✅ Keep-alive commitado às $TIMESTAMP — schedules do GitHub Actions mantidos ativos."
+
+      - name: 🔍 Verificar se o daily-update já rodou hoje
+        id: check
+        run: |
+          TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
+          LAST=$(node -e "
+            const fs = require('fs');
+            try {
+              const d = JSON.parse(fs.readFileSync('data.json','utf8'));
+              console.log((d.data_coleta || '').substring(0,10));
+            } catch(e) { console.log(''); }
+          ")
+          echo "Hoje: $TODAY | Última atualização: $LAST"
+          if [ "$LAST" = "$TODAY" ]; then
+            echo "precisa_atualizar=false" >> $GITHUB_OUTPUT
+            echo "✅ Dashboard já atualizado hoje — nenhuma ação adicional necessária."
+          else
+            echo "precisa_atualizar=true" >> $GITHUB_OUTPUT
+            echo "⚠️  Dashboard ainda não atualizado hoje ($LAST) — será disparado após keep-alive."
+          fi
+
+      - name: 🚀 Disparar daily-update se ainda não rodou hoje
+        if: steps.check.outputs.precisa_atualizar == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
+        run: |
+          echo "📡 Disparando daily-update às $(TZ=America/Sao_Paulo date +'%H:%M:%S')..."
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/actions/workflows/daily-update.yml/dispatches \
+            -f ref=main
+          echo "✅ daily-update.yml disparado com sucesso pelo keep-alive."

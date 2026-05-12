@@ -15,29 +15,35 @@ permissions:
 jobs:
   watchdog:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     name: "🤖 Agente Robô — Fiscalização e Ação"
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: 🔍 Verificar status do dashboard
+      - name: 🔍 Verificar status do dashboard (via API GitHub — sem cache)
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
         run: |
           TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
-          NOW_UTC=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           echo "Horário da fiscalização: $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
           echo "Hoje esperado: $TODAY"
 
-          # Lê data do último update no data.json
-          LAST=$(node -e "
-            const fs = require('fs');
-            try {
-              const d = JSON.parse(fs.readFileSync('data.json','utf8'));
-              console.log((d.data_coleta || '').substring(0,10));
-            } catch(e) { console.log(''); }
+          # Lê data.json diretamente via API GitHub (sem cache CDN)
+          RAW=$(gh api repos/${{ github.repository }}/contents/data.json \
+                  --header "Accept: application/vnd.github+json" \
+                  --jq '.content' | tr -d '\n' | base64 -d)
+
+          LAST=$(echo "$RAW" | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c);
+            process.stdin.on('end',()=>{
+              try { console.log((JSON.parse(d).data_coleta||'').substring(0,10)); }
+              catch(e){ console.log(''); }
+            });
           ")
+
           echo "Última atualização no dashboard: $LAST"
 
           if [ "$LAST" = "$TODAY" ]; then
@@ -47,7 +53,7 @@ jobs:
           else
             echo "status=desatualizado" >> $GITHUB_OUTPUT
             echo "last_update=$LAST" >> $GITHUB_OUTPUT
-            echo "⚠️  Dashboard DESATUALIZADO — última atualização: $LAST | Esperado: $TODAY"
+            echo "⚠️  Dashboard DESATUALIZADO — última: $LAST | Esperado: $TODAY"
           fi
 
       - name: 🚀 Disparar atualização emergencial
@@ -62,26 +68,35 @@ jobs:
             -f ref=main
           echo "✓ Workflow disparado às $(TZ=America/Sao_Paulo date +'%H:%M:%S')"
 
-      - name: ⏳ Aguardar conclusão do workflow emergencial
+      - name: ⏳ Aguardar conclusão do workflow emergencial (5 min)
         if: steps.check.outputs.status == 'desatualizado'
         run: |
-          echo "Aguardando 90 segundos para o workflow concluir..."
-          sleep 90
+          echo "Aguardando 5 minutos para o workflow completar..."
+          sleep 300
 
-      - name: 🔍 Verificar resultado após ação emergencial
+      - name: 🔍 Verificar resultado após ação emergencial (via API GitHub — sem cache)
         if: steps.check.outputs.status == 'desatualizado'
         id: recheck
+        env:
+          GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
         run: |
-          # Faz pull para pegar dados mais recentes
-          git pull origin main --quiet 2>/dev/null || true
           TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
-          LAST=$(node -e "
-            const fs = require('fs');
-            try {
-              const d = JSON.parse(fs.readFileSync('data.json','utf8'));
-              console.log((d.data_coleta || '').substring(0,10));
-            } catch(e) { console.log(''); }
+
+          # Lê data.json via API GitHub (sempre fresco, sem cache)
+          RAW=$(gh api repos/${{ github.repository }}/contents/data.json \
+                  --header "Accept: application/vnd.github+json" \
+                  --jq '.content' | tr -d '\n' | base64 -d)
+
+          LAST=$(echo "$RAW" | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c);
+            process.stdin.on('end',()=>{
+              try { console.log((JSON.parse(d).data_coleta||'').substring(0,10)); }
+              catch(e){ console.log(''); }
+            });
           ")
+
+          echo "Resultado da re-verificação: $LAST vs $TODAY"
+
           if [ "$LAST" = "$TODAY" ]; then
             echo "resultado=resolvido" >> $GITHUB_OUTPUT
             echo "✅ Resolvido! Dashboard atualizado após ação emergencial."
@@ -100,7 +115,7 @@ jobs:
           password: ${{ secrets.ALERT_EMAIL_PASS }}
           to: ${{ secrets.ALERT_EMAIL_TO }}
           from: "🤖 GTI Robô <${{ secrets.ALERT_EMAIL_USER }}>"
-          subject: "✅ [GTI Dashboard] Atualização emergencial concluída — ${{ steps.check.outputs.last_update }}"
+          subject: "✅ [GTI Dashboard] Atualização emergencial concluída com sucesso"
           body: |
             🤖 GTI Dashboard — Agente Robô
 
@@ -108,13 +123,13 @@ jobs:
             O workflow principal falhou ou atrasou hoje.
             Última atualização registrada: ${{ steps.check.outputs.last_update }}
 
-            ✅ AÇÃO TOMADA:
+            ✅ AÇÃO TOMADA E RESOLVIDA:
             O Agente Robô disparou o workflow emergencial e o dashboard foi atualizado com sucesso.
 
             Nenhuma ação sua é necessária.
 
             ---
-            🕐 Detectado em: $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M')
+            🕐 Detectado em: ${{ steps.check.outputs.last_update }}
             🔗 Repositório: https://github.com/${{ github.repository }}/actions
             🌐 Dashboard: https://dashboard.gti-g.com
 
@@ -136,7 +151,6 @@ jobs:
             O dashboard está desatualizado e todas as tentativas automáticas falharam.
 
             Última atualização registrada: ${{ steps.check.outputs.last_update }}
-            Horário do alerta: $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M')
 
             🔧 AÇÃO NECESSÁRIA:
             1. Verifique os logs em: https://github.com/${{ github.repository }}/actions
