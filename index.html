@@ -490,11 +490,11 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
   background: linear-gradient(160deg, #051535 0%, #0a2050 100%);
 }
 [data-theme="light"] .logo-area {
-  background: var(--surface);
-  border-bottom: 2px solid var(--gti-blue);
+  background: linear-gradient(160deg, #003d8f 0%, #005DC7 100%);
+  border-bottom: 2px solid #0041a8;
 }
 .logo-area img { height: 40px; display: block; margin-bottom: 8px; }
-.logo-area .tagline { font-size: 10px; color: var(--text2); }
+.logo-area .tagline { font-size: 10px; color: rgba(255,255,255,.6); }
 .live-chip {
   display: inline-flex; align-items: center; gap: 5px;
   background: rgba(124,218,36,.15); color: var(--gti-green);
@@ -576,7 +576,6 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
   --border: #ccd6e8; --text: #1a2a3a; --text2: #5a7898;
 }
 [data-theme="light"] body { background: var(--bg); }
-[data-theme="light"] .logo-area { background: linear-gradient(160deg,#003d8f 0%,#005DC7 100%); }
 [data-theme="light"] .sidebar { box-shadow: 2px 0 20px rgba(0,0,0,.1); }
 [data-theme="light"] #screen-login { background: #eef2f7; }
 [data-theme="light"] .login-grid { background-image: linear-gradient(rgba(0,93,199,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,93,199,.03) 1px,transparent 1px); }
@@ -736,7 +735,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 }
 .last-update-stamp .upd-icon { font-size: 11px; }
 .last-update-stamp strong { color: var(--gti-green); font-weight: 600; }
-[data-theme="light"] .last-update-stamp { color: #5a7898; }
+[data-theme="light"] .last-update-stamp { color: rgba(255,255,255,.6); }
 
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
