@@ -38,17 +38,23 @@ function todayBrasilia() {
 async function checkDashboard(env) {
   try {
     // Usa a API REST do GitHub que sempre retorna dados frescos (sem CDN cache)
+    // Retorna o arquivo em base64 dentro do campo "content"
     const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/data.json`;
     const res = await fetch(url, {
       headers: {
         'Authorization':        `Bearer ${env.GITHUB_TOKEN}`,
-        'Accept':               'application/vnd.github.raw+json',
+        'Accept':               'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         'Cache-Control':        'no-store',
       }
     });
     if (!res.ok) throw new Error(`API GitHub HTTP ${res.status}`);
-    const data       = await res.json();
+    const envelope = await res.json();
+
+    // Decodifica o conteúdo base64 → JSON real
+    const raw  = atob(envelope.content.replace(/\n/g, ''));
+    const data = JSON.parse(raw);
+
     const lastUpdate = (data.data_coleta || '').substring(0, 10); // DD/MM/YYYY
     const today      = todayBrasilia();
     return {
