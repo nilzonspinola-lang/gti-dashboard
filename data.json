@@ -1,7 +1,7 @@
 {
-  "data_coleta": "13/05/2026 as 09:23",
+  "data_coleta": "13/05/2026 as 09:58",
   "saldo_geral": 15975.87,
-  "receita_ytd": 168920.32,
+  "receita_ytd": 168740.61,
   "contas": [
     {
       "nome": "Itaú Unibanco",
@@ -24,5 +24,5 @@
       "saldo": 109.4
     }
   ],
-  "resultado_ytd": 65257.02
+  "resultado_ytd": 77663.13
 }
