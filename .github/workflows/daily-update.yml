@@ -4,13 +4,13 @@ on:
   schedule:
     # Tentativa 1 — 07:00 Brasília (10:00 UTC)
     - cron: '0 10 * * *'
-    # Tentativa 2 — 08:00 Brasília (11:00 UTC) — retry se a 1ª falhou/atrasou
+    # Tentativa 2 — 08:00 Brasília (11:00 UTC)
     - cron: '0 11 * * *'
-    # Tentativa 3 — 09:00 Brasília (12:00 UTC) — retry se a 2ª falhou/atrasou
+    # Tentativa 3 — 09:00 Brasília (12:00 UTC)
     - cron: '0 12 * * *'
-    # Tentativa 4 — 10:00 Brasília (13:00 UTC) — retry final do dia
+    # Tentativa 4 — 10:00 Brasília (13:00 UTC)
     - cron: '0 13 * * *'
-  workflow_dispatch: {}  # permite disparo manual pela aba Actions
+  workflow_dispatch: {}
   push:
     branches: [main]
     paths:
@@ -37,6 +37,16 @@ jobs:
         with:
           node-version: '22'
 
+      - name: 🔄 Keep-alive — garante commit diário SEMPRE (evita suspensão de schedules)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
+          git add .github/keep-alive.txt
+          git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
+          git push
+          echo "✅ Keep-alive commitado — schedules mantidos ativos."
+
       - name: Verificar se já foi atualizado hoje
         id: check
         run: |
@@ -54,7 +64,7 @@ jobs:
             echo "✅ Dashboard já foi atualizado hoje ($TODAY) — pulando."
           else
             echo "ja_atualizado=false" >> $GITHUB_OUTPUT
-            echo "🔄 Dashboard desatualizado ($LAST) — iniciando atualização para $TODAY."
+            echo "🔄 Dashboard desatualizado ($LAST) — iniciando atualização."
           fi
 
       - name: Run dashboard update (via API REST)
@@ -69,7 +79,7 @@ jobs:
             echo "--- Tentativa $i de 3 ---"
             node update-dashboard.js && break
             if [ $i -lt 3 ]; then
-              echo "⚠ Falhou — aguardando 30s antes de tentar novamente..."
+              echo "⚠ Falhou — aguardando 30s..."
               sleep 30
             else
               echo "✗ Todas as tentativas falharam."
@@ -82,6 +92,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
           git add index.html data.json
           if git diff --staged --quiet; then
             echo "Nenhuma mudança detectada — pulando commit."
@@ -89,16 +100,3 @@ jobs:
           fi
           git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
           git push
-
-      - name: 🔄 Keep-alive embutido (atualiza timestamp mesmo se já atualizado)
-        if: steps.check.outputs.ja_atualizado == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Mesmo quando pula a atualização, garante commit para manter schedules ativos
-          echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
-          git add .github/keep-alive.txt
-          git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y')" || true
-          git push || true
-          echo "✅ Keep-alive garantido pelo daily-update."
