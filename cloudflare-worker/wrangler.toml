@@ -1,5 +1,10 @@
-# wrangler.toml — GTI Dashboard Robô (Cloudflare Worker)
+# wrangler.toml — GTI Dashboard Monitor (Cloudflare Worker)
 # Documentação: https://developers.cloudflare.com/workers/wrangler/configuration/
+#
+# NOVA ARQUITETURA v2.0:
+# O Worker agora é APENAS monitor e alertador.
+# O dispatch de workflows é feito pelo GitHub Actions com GITHUB_TOKEN nativo.
+# Não precisa mais de GITHUB_TOKEN aqui.
 
 name               = "gti-dashboard-robo"
 main               = "worker.js"
@@ -7,15 +12,15 @@ compatibility_date = "2026-05-06"
 compatibility_flags = ["nodejs_compat"]
 
 # ── Cron Triggers ────────────────────────────────────────────────────────────
-# Fiscaliza a cada hora entre 10:00 e 16:00 UTC (07:00–13:00 Brasília)
-# Garante cobertura total mesmo se o GitHub Actions atrasar.
+# Monitora ao longo do dia — cobertura ampla de verificação
 [triggers]
 crons = [
-  "0 10 * * *",   # 07:00 Brasília
-  "0 12 * * *",   # 09:00 Brasília
-  "0 13 * * *",   # 10:00 Brasília
-  "0 15 * * *",   # 12:00 Brasília
-  "0 16 * * *",   # 13:00 Brasília
+  "0 8 * * *",    # 05:00 BRT — verificação matinal
+  "0 10 * * *",   # 07:00 BRT
+  "0 12 * * *",   # 09:00 BRT
+  "0 14 * * *",   # 11:00 BRT
+  "0 17 * * *",   # 14:00 BRT — verificação pós-watchdog
+  "0 20 * * *",   # 17:00 BRT — verificação tarde
 ]
 
 # ── Observability ─────────────────────────────────────────────────────────────
@@ -23,15 +28,15 @@ crons = [
 enabled = true
 
 # ── Variáveis de Ambiente (não-secretas) ─────────────────────────────────────
-# Valores sensíveis são configurados via `wrangler secret put` ou pelo
-# Cloudflare Dashboard → Workers → Settings → Variables & Secrets
 [vars]
-GITHUB_REPO   = "nilzonspinola-lang/gti-dashboard"
-WORKFLOW_ID   = "daily-update.yml"
-DATA_JSON_URL = "https://raw.githubusercontent.com/nilzonspinola-lang/gti-dashboard/main/data.json"
+GITHUB_REPO = "nilzonspinola-lang/gti-dashboard"
 
-# ── Secrets necessários (configurar separadamente) ────────────────────────────
-# Execute um a um após `wrangler login`:
-#   wrangler secret put GITHUB_TOKEN     ← PAT com permissões repo + workflow
-#   wrangler secret put RESEND_API_KEY   ← Chave Resend (e-mail gratuito)
-#   wrangler secret put ALERT_EMAIL_TO   ← E-mail destino dos alertas
+# ── Secrets necessários (configurar no Cloudflare Dashboard) ──────────────────
+# Workers → gti-dashboard-robo → Settings → Variables & Secrets
+#   RESEND_API_KEY   ← Chave da API Resend (para envio de e-mail)
+#   ALERT_EMAIL_TO   ← E-mail destino dos alertas
+#
+# REMOVIDO (não é mais necessário):
+#   GITHUB_TOKEN     ← Não precisa mais! Dispatch é nativo no GitHub Actions.
+#                      Pode manter o secret existente para melhorar rate limit
+#                      da API GitHub (opcional), mas não é obrigatório.

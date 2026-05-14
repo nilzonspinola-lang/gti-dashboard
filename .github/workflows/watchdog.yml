@@ -1,38 +1,52 @@
 name: GTI Dashboard - Watchdog 🤖
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CAMADA 3 — Watchdog autônomo
+# Fiscaliza o dashboard 4× por dia (após as janelas do daily-update).
+# USA APENAS GITHUB_TOKEN NATIVO — zero dependência de PAT externo.
+# Se desatualizado: dispara daily-update, aguarda 8 min, re-verifica.
+# Envia alerta via Resend se ainda falhar após ação emergencial.
+# ══════════════════════════════════════════════════════════════════════════════
+
 on:
   schedule:
-    # Fiscaliza às 11:00 Brasília (14:00 UTC) — após todas as 4 tentativas do workflow principal
-    - cron: '0 14 * * *'
-    # Segunda fiscalização às 13:00 Brasília (16:00 UTC) — garantia extra
-    - cron: '0 16 * * *'
+    - cron: '0 16 * * *'   # 13:00 BRT — após todas as 7 tentativas do daily-update
+    - cron: '0 18 * * *'   # 15:00 BRT — segunda fiscalização
+    - cron: '0 20 * * *'   # 17:00 BRT — terceira fiscalização (tarde)
+    - cron: '0 22 * * *'   # 19:00 BRT — fiscalização noturna final
   workflow_dispatch: {}
 
 permissions:
   contents: read
-  actions: write   # necessário para disparar o workflow principal
+  actions: write    # para disparar daily-update via GITHUB_TOKEN nativo
 
 jobs:
   watchdog:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    name: "🤖 Agente Robô — Fiscalização e Ação"
+    timeout-minutes: 20
+    name: "🤖 Watchdog — Fiscalização e Ação"
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: 🔍 Verificar status do dashboard (via API GitHub — sem cache)
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ── PASSO 1: Verificar data.json via API GitHub (sem cache CDN) ──────────
+      - name: 🔍 Verificar status do dashboard (API GitHub — sem cache)
         id: check
         env:
-          GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}    # ← NATIVO, nunca expira
         run: |
           TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
-          echo "Horário da fiscalização: $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
-          echo "Hoje esperado: $TODAY"
+          echo "📅 Hoje BRT: $TODAY"
+          echo "🕐 Horário: $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
 
-          # Lê data.json diretamente via API GitHub (sem cache CDN)
-          RAW=$(gh api repos/${{ github.repository }}/contents/data.json \
+          # Lê data.json via API GitHub (fresh, sem CDN cache)
+          RAW=$(gh api "repos/${{ github.repository }}/contents/data.json" \
                   --header "Accept: application/vnd.github+json" \
                   --jq '.content' | tr -d '\n' | base64 -d)
 
@@ -40,50 +54,60 @@ jobs:
             let d=''; process.stdin.on('data',c=>d+=c);
             process.stdin.on('end',()=>{
               try { console.log((JSON.parse(d).data_coleta||'').substring(0,10)); }
-              catch(e){ console.log(''); }
+              catch(e){ console.log('erro'); }
             });
           ")
 
-          echo "Última atualização no dashboard: $LAST"
+          SALDO=$(echo "$RAW" | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c);
+            process.stdin.on('end',()=>{
+              try { console.log((JSON.parse(d).saldo_geral||0).toLocaleString('pt-BR',{minimumFractionDigits:2})); }
+              catch(e){ console.log('0,00'); }
+            });
+          ")
+
+          echo "📊 Última atualização: $LAST | Saldo: R\$ $SALDO"
+          echo "last_update=$LAST" >> $GITHUB_OUTPUT
+          echo "saldo=$SALDO"      >> $GITHUB_OUTPUT
+          echo "today=$TODAY"      >> $GITHUB_OUTPUT
 
           if [ "$LAST" = "$TODAY" ]; then
             echo "status=ok" >> $GITHUB_OUTPUT
-            echo "last_update=$LAST" >> $GITHUB_OUTPUT
-            echo "✅ Dashboard OK — atualizado hoje ($TODAY)"
+            echo "✅ Dashboard atualizado hoje — nenhuma ação necessária."
           else
             echo "status=desatualizado" >> $GITHUB_OUTPUT
-            echo "last_update=$LAST" >> $GITHUB_OUTPUT
-            echo "⚠️  Dashboard DESATUALIZADO — última: $LAST | Esperado: $TODAY"
+            echo "⚠️ Dashboard DESATUALIZADO! Última: $LAST | Esperado: $TODAY"
           fi
 
-      - name: 🚀 Disparar atualização emergencial
+      # ── PASSO 2: Disparar atualização emergencial ────────────────────────────
+      - name: 🚀 Disparar atualização emergencial (GITHUB_TOKEN nativo)
         if: steps.check.outputs.status == 'desatualizado'
         env:
-          GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}    # ← NATIVO, nunca expira
         run: |
-          echo "🚨 Disparando workflow de atualização emergencial..."
-          gh api \
-            --method POST \
-            repos/${{ github.repository }}/actions/workflows/daily-update.yml/dispatches \
-            -f ref=main
-          echo "✓ Workflow disparado às $(TZ=America/Sao_Paulo date +'%H:%M:%S')"
+          echo "🚨 Disparando daily-update emergencial..."
+          gh workflow run daily-update.yml \
+            --ref main \
+            --field force=true
+          echo "✅ Workflow disparado às $(TZ=America/Sao_Paulo date +'%H:%M:%S BRT')"
 
-      - name: ⏳ Aguardar conclusão do workflow emergencial (5 min)
+      # ── PASSO 3: Aguardar 8 minutos ──────────────────────────────────────────
+      - name: ⏳ Aguardar 8 min para o workflow concluir
         if: steps.check.outputs.status == 'desatualizado'
         run: |
-          echo "Aguardando 5 minutos para o workflow completar..."
-          sleep 300
+          echo "Aguardando 8 minutos (script leva ~3–5 min + push)..."
+          sleep 480
 
-      - name: 🔍 Verificar resultado após ação emergencial (via API GitHub — sem cache)
+      # ── PASSO 4: Re-verificar resultado ──────────────────────────────────────
+      - name: 🔍 Re-verificar após ação emergencial
         if: steps.check.outputs.status == 'desatualizado'
         id: recheck
         env:
-          GH_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}    # ← NATIVO
         run: |
           TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
 
-          # Lê data.json via API GitHub (sempre fresco, sem cache)
-          RAW=$(gh api repos/${{ github.repository }}/contents/data.json \
+          RAW=$(gh api "repos/${{ github.repository }}/contents/data.json" \
                   --header "Accept: application/vnd.github+json" \
                   --jq '.content' | tr -d '\n' | base64 -d)
 
@@ -91,86 +115,73 @@ jobs:
             let d=''; process.stdin.on('data',c=>d+=c);
             process.stdin.on('end',()=>{
               try { console.log((JSON.parse(d).data_coleta||'').substring(0,10)); }
-              catch(e){ console.log(''); }
+              catch(e){ console.log('erro'); }
             });
           ")
 
-          echo "Resultado da re-verificação: $LAST vs $TODAY"
+          SALDO=$(echo "$RAW" | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c);
+            process.stdin.on('end',()=>{
+              try { console.log((JSON.parse(d).saldo_geral||0).toLocaleString('pt-BR',{minimumFractionDigits:2})); }
+              catch(e){ console.log('0,00'); }
+            });
+          ")
+
+          echo "🔍 Re-verificação: $LAST vs $TODAY | Saldo: R\$ $SALDO"
+          echo "last_update=$LAST" >> $GITHUB_OUTPUT
+          echo "saldo=$SALDO"      >> $GITHUB_OUTPUT
 
           if [ "$LAST" = "$TODAY" ]; then
             echo "resultado=resolvido" >> $GITHUB_OUTPUT
-            echo "✅ Resolvido! Dashboard atualizado após ação emergencial."
+            echo "✅ RESOLVIDO — Dashboard atualizado após ação emergencial!"
           else
             echo "resultado=falhou" >> $GITHUB_OUTPUT
-            echo "❌ Ainda desatualizado após ação emergencial. Alerta crítico necessário."
+            echo "❌ CRÍTICO — Ainda desatualizado após ação emergencial."
           fi
 
-      - name: 📧 Enviar alerta de SUCESSO após ação emergencial
+      # ── PASSO 5a: Alerta de SUCESSO (emergência resolvida) ──────────────────
+      - name: ✅ Alerta de sucesso pós-emergencial (Resend)
         if: steps.check.outputs.status == 'desatualizado' && steps.recheck.outputs.resultado == 'resolvido'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.ALERT_EMAIL_USER }}
-          password: ${{ secrets.ALERT_EMAIL_PASS }}
-          to: ${{ secrets.ALERT_EMAIL_TO }}
-          from: "🤖 GTI Robô <${{ secrets.ALERT_EMAIL_USER }}>"
-          subject: "✅ [GTI Dashboard] Atualização emergencial concluída com sucesso"
-          body: |
-            🤖 GTI Dashboard — Agente Robô
-
-            ⚠️  SITUAÇÃO DETECTADA:
-            O workflow principal falhou ou atrasou hoje.
-            Última atualização registrada: ${{ steps.check.outputs.last_update }}
-
-            ✅ AÇÃO TOMADA E RESOLVIDA:
-            O Agente Robô disparou o workflow emergencial e o dashboard foi atualizado com sucesso.
-
-            Nenhuma ação sua é necessária.
-
-            ---
-            🕐 Detectado em: ${{ steps.check.outputs.last_update }}
-            🔗 Repositório: https://github.com/${{ github.repository }}/actions
-            🌐 Dashboard: https://dashboard.gti-g.com
-
-      - name: 🚨 Enviar alerta CRÍTICO — falhou mesmo após ação emergencial
-        if: steps.check.outputs.status == 'desatualizado' && steps.recheck.outputs.resultado == 'falhou'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.ALERT_EMAIL_USER }}
-          password: ${{ secrets.ALERT_EMAIL_PASS }}
-          to: ${{ secrets.ALERT_EMAIL_TO }}
-          from: "🚨 GTI Robô CRÍTICO <${{ secrets.ALERT_EMAIL_USER }}>"
-          subject: "🚨 [GTI Dashboard] CRÍTICO — Dashboard desatualizado, intervenção necessária!"
-          body: |
-            🚨 GTI Dashboard — ALERTA CRÍTICO
-
-            ❌ PROBLEMA NÃO RESOLVIDO AUTOMATICAMENTE:
-            O dashboard está desatualizado e todas as tentativas automáticas falharam.
-
-            Última atualização registrada: ${{ steps.check.outputs.last_update }}
-
-            🔧 AÇÃO NECESSÁRIA:
-            1. Verifique os logs em: https://github.com/${{ github.repository }}/actions
-            2. Verifique se os Secrets CONTROLLE_EMAIL e CONTROLLE_PASSWORD estão válidos
-            3. Verifique se a API do Controlle está acessível
-
-            🔗 Histórico de runs: https://github.com/${{ github.repository }}/actions
-            🌐 Dashboard: https://dashboard.gti-g.com
-
-      - name: ✅ Relatório final do Watchdog
         run: |
-          echo "=================================="
-          echo "  🤖 RELATÓRIO DO AGENTE ROBÔ"
-          echo "=================================="
-          echo "  Data/Hora: $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
-          echo "  Status dashboard: ${{ steps.check.outputs.status }}"
+          curl -s -X POST "https://api.resend.com/emails" \
+            -H "Authorization: Bearer ${{ secrets.RESEND_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "from": "GTI Robô <onboarding@resend.dev>",
+              "to": ["${{ secrets.ALERT_EMAIL_TO }}"],
+              "subject": "✅ GTI Dashboard — Atualizado automaticamente após falha",
+              "html": "<h2>✅ GTI Dashboard — Ação Emergencial Bem-sucedida</h2><p>O Watchdog detectou que o dashboard estava desatualizado e disparou o workflow emergencial.</p><table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:8px;border:1px solid #ddd\"><b>Última atualização:</b></td><td style=\"padding:8px;border:1px solid #ddd\">${{ steps.recheck.outputs.last_update }}</td></tr><tr><td style=\"padding:8px;border:1px solid #ddd\"><b>Saldo geral:</b></td><td style=\"padding:8px;border:1px solid #ddd\">R\$ ${{ steps.recheck.outputs.saldo }}</td></tr><tr><td style=\"padding:8px;border:1px solid #ddd\"><b>Horário:</b></td><td style=\"padding:8px;border:1px solid #ddd\">$(TZ=America/Sao_Paulo date +\"%d/%m/%Y %H:%M\")</td></tr></table><p><b>Nenhuma ação sua é necessária.</b> 🤖</p><p><a href=\"https://dashboard.gti-g.com\">Ver Dashboard</a></p>"
+            }' || echo "⚠️ Falha ao enviar email de sucesso (não crítico)"
+
+      # ── PASSO 5b: Alerta CRÍTICO (emergência não resolvida) ─────────────────
+      - name: 🚨 Alerta CRÍTICO — falhou após ação emergencial (Resend)
+        if: steps.check.outputs.status == 'desatualizado' && steps.recheck.outputs.resultado == 'falhou'
+        run: |
+          curl -s -X POST "https://api.resend.com/emails" \
+            -H "Authorization: Bearer ${{ secrets.RESEND_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "from": "GTI Robô <onboarding@resend.dev>",
+              "to": ["${{ secrets.ALERT_EMAIL_TO }}"],
+              "subject": "🚨 GTI Dashboard — CRÍTICO: falhou após tentativas automáticas",
+              "html": "<h2>🚨 GTI Dashboard — Alerta Crítico</h2><p>O Watchdog tentou corrigir mas o dashboard <b>continua desatualizado</b>.</p><table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:8px;border:1px solid #ddd\"><b>Última atualização:</b></td><td style=\"padding:8px;border:1px solid #ddd\">${{ steps.check.outputs.last_update }}</td></tr><tr><td style=\"padding:8px;border:1px solid #ddd\"><b>Esperado:</b></td><td style=\"padding:8px;border:1px solid #ddd\">${{ steps.check.outputs.today }}</td></tr></table><p>🔧 <b>Verifique:</b></p><ol><li>Secrets CONTROLLE_EMAIL e CONTROLLE_PASSWORD no GitHub</li><li>Se a API do Controlle está acessível</li><li><a href=\"https://github.com/${{ github.repository }}/actions\">Logs do GitHub Actions</a></li></ol><p><a href=\"https://dashboard.gti-g.com\">Ver Dashboard</a></p>"
+            }' || echo "⚠️ Falha ao enviar email crítico"
+
+      # ── PASSO 6: Relatório final ─────────────────────────────────────────────
+      - name: 📋 Relatório final do Watchdog
+        if: always()
+        run: |
+          echo "════════════════════════════════════"
+          echo "   🤖 RELATÓRIO DO WATCHDOG GTI"
+          echo "════════════════════════════════════"
+          echo "  Data/Hora : $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
+          echo "  Status    : ${{ steps.check.outputs.status }}"
           if [ "${{ steps.check.outputs.status }}" = "ok" ]; then
-            echo "  Resultado: ✅ Nenhuma ação necessária"
+            echo "  Resultado : ✅ Nenhuma ação necessária"
+            echo "  Última    : ${{ steps.check.outputs.last_update }}"
+            echo "  Saldo     : R\$ ${{ steps.check.outputs.saldo }}"
           else
-            echo "  Ação emergencial: ✅ Disparada"
-            echo "  Resultado: ${{ steps.recheck.outputs.resultado }}"
+            echo "  Ação      : ✅ Workflow emergencial disparado"
+            echo "  Resultado : ${{ steps.recheck.outputs.resultado }}"
           fi
-          echo "=================================="
+          echo "════════════════════════════════════"

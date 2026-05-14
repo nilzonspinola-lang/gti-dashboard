@@ -1,43 +1,54 @@
 name: GTI Dashboard - Atualização Diária
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CAMADA 1 — Workflow principal de atualização
+# Roda 6× por dia (07h–12h BRT) com concurrency=1 para evitar duplicatas.
+# Embutido: keep-alive diário (primeiro passo — SEMPRE roda).
+# Self-healing: em caso de falha, redispara a si mesmo após 10 min.
+# ══════════════════════════════════════════════════════════════════════════════
+
 on:
   schedule:
-    # Tentativa 1 — 07:00 Brasília (10:00 UTC)
-    - cron: '0 10 * * *'
-    # Tentativa 2 — 08:00 Brasília (11:00 UTC)
-    - cron: '0 11 * * *'
-    # Tentativa 3 — 09:00 Brasília (12:00 UTC)
-    - cron: '0 12 * * *'
-    # Tentativa 4 — 10:00 Brasília (13:00 UTC)
-    - cron: '0 13 * * *'
-  workflow_dispatch: {}
+    - cron: '0 9 * * *'    # 06:00 BRT — aquecimento antecipado
+    - cron: '0 10 * * *'   # 07:00 BRT
+    - cron: '0 11 * * *'   # 08:00 BRT
+    - cron: '0 12 * * *'   # 09:00 BRT
+    - cron: '0 13 * * *'   # 10:00 BRT
+    - cron: '0 14 * * *'   # 11:00 BRT
+    - cron: '0 15 * * *'   # 12:00 BRT
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Forçar atualização mesmo se já rodou hoje'
+        required: false
+        default: 'false'
   push:
     branches: [main]
     paths:
       - 'scripts/update-dashboard.js'
+      - '.github/force-update.txt'
 
 permissions:
   contents: write
+  actions: write    # necessário para self-dispatch em caso de falha
 
 concurrency:
   group: gti-dashboard-update
-  cancel-in-progress: false
+  cancel-in-progress: false   # nunca cancela — deixa o anterior terminar
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
+      # ── PASSO 0: Keep-alive ─────────────────────────────────────────────────
+      # SEMPRE roda, independente do resultado dos passos seguintes.
+      # Garante commit diário para evitar suspensão de schedules pelo GitHub.
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: 🔄 Keep-alive — garante commit diário SEMPRE (evita suspensão de schedules)
+      - name: 🔄 Keep-alive — commit diário para evitar suspensão de schedules
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -45,12 +56,20 @@ jobs:
           git add .github/keep-alive.txt
           git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
           git push
-          echo "✅ Keep-alive commitado — schedules mantidos ativos."
+          echo "✅ Keep-alive commitado."
 
-      - name: Verificar se já foi atualizado hoje
+      # ── PASSO 1: Verificar se já rodou hoje ─────────────────────────────────
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 🔍 Verificar se já foi atualizado hoje
         id: check
         run: |
           TODAY=$(TZ=America/Sao_Paulo date +'%d/%m/%Y')
+          FORCE="${{ github.event.inputs.force }}"
+
           LAST=$(node -e "
             const fs = require('fs');
             try {
@@ -58,45 +77,90 @@ jobs:
               console.log((d.data_coleta || '').substring(0,10));
             } catch(e) { console.log(''); }
           ")
-          echo "Hoje: $TODAY | Última atualização: $LAST"
-          if [ "$LAST" = "$TODAY" ]; then
-            echo "ja_atualizado=true" >> $GITHUB_OUTPUT
-            echo "✅ Dashboard já foi atualizado hoje ($TODAY) — pulando."
+
+          echo "Hoje BRT: $TODAY | Última atualização: $LAST | Force: $FORCE"
+
+          if [ "$LAST" = "$TODAY" ] && [ "$FORCE" != "true" ]; then
+            echo "ja_atualizado=true"  >> $GITHUB_OUTPUT
+            echo "✅ Já atualizado hoje ($TODAY) — pulando (use force=true para forçar)."
           else
             echo "ja_atualizado=false" >> $GITHUB_OUTPUT
-            echo "🔄 Dashboard desatualizado ($LAST) — iniciando atualização."
+            echo "🔄 Iniciando atualização (last=$LAST, hoje=$TODAY, force=$FORCE)."
           fi
 
-      - name: Run dashboard update (via API REST)
+      # ── PASSO 2: Instalar dependências ──────────────────────────────────────
+      - name: 📦 Instalar dependências
         if: steps.check.outputs.ja_atualizado == 'false'
+        working-directory: scripts
+        run: npm ci --prefer-offline 2>/dev/null || npm install
+
+      # ── PASSO 3: Rodar atualização (3 tentativas com backoff) ───────────────
+      - name: 🚀 Atualizar dashboard (3 tentativas)
+        if: steps.check.outputs.ja_atualizado == 'false'
+        id: run_update
         working-directory: scripts
         env:
           CONTROLLE_EMAIL:    ${{ secrets.CONTROLLE_EMAIL }}
           CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
           TZ: America/Sao_Paulo
         run: |
+          SUCCESS=false
           for i in 1 2 3; do
-            echo "--- Tentativa $i de 3 ---"
-            node update-dashboard.js && break
-            if [ $i -lt 3 ]; then
-              echo "⚠ Falhou — aguardando 30s..."
-              sleep 30
+            echo "━━━ Tentativa $i/3 ━━━"
+            if node update-dashboard.js; then
+              echo "✅ Sucesso na tentativa $i."
+              echo "success=true" >> $GITHUB_OUTPUT
+              SUCCESS=true
+              break
             else
-              echo "✗ Todas as tentativas falharam."
-              exit 1
+              echo "⚠️ Tentativa $i falhou."
+              if [ $i -lt 3 ]; then
+                WAIT=$((i * 30))
+                echo "⏳ Aguardando ${WAIT}s antes da próxima tentativa..."
+                sleep $WAIT
+              fi
             fi
           done
+          if [ "$SUCCESS" != "true" ]; then
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "❌ Todas as 3 tentativas falharam."
+            exit 1
+          fi
 
-      - name: Commit and push changes
-        if: steps.check.outputs.ja_atualizado == 'false'
+      # ── PASSO 4: Commit e push dos dados atualizados ─────────────────────────
+      - name: 💾 Commit e push dos dados atualizados
+        if: steps.check.outputs.ja_atualizado == 'false' && steps.run_update.outputs.success == 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main
           git add index.html data.json
           if git diff --staged --quiet; then
-            echo "Nenhuma mudança detectada — pulando commit."
+            echo "ℹ️ Nenhuma mudança detectada no index.html/data.json — pulando commit."
             exit 0
           fi
           git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
           git push
+          echo "✅ Dashboard atualizado e publicado."
+
+      # ── PASSO 5: Self-heal — redispara em caso de falha ─────────────────────
+      # Se o script falhou, agenda nova tentativa em 10 minutos.
+      # Usa GITHUB_TOKEN nativo — zero dependência de PAT externo.
+      - name: 🔁 Self-heal — reagendar tentativa em caso de falha
+        if: failure() && steps.check.outputs.ja_atualizado == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HOUR=$(TZ=America/Sao_Paulo date +'%H')
+          echo "⚠️ Atualização falhou. Hora atual BRT: $HOUR"
+
+          # Só redispara se ainda é cedo (antes das 15h BRT = 18h UTC)
+          # O watchdog assume o controle após isso
+          if [ "$HOUR" -lt 15 ]; then
+            echo "🔁 Redispatchando workflow para nova tentativa..."
+            sleep 600  # aguarda 10 minutos antes de tentar novamente
+            gh workflow run daily-update.yml --ref main
+            echo "✅ Nova tentativa agendada."
+          else
+            echo "ℹ️ Após 15h BRT — watchdog assumirá o controle."
+          fi
