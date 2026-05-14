@@ -1,15 +1,15 @@
 {
-  "data_coleta": "13/05/2026 as 09:58",
-  "saldo_geral": 15975.87,
-  "receita_ytd": 168740.61,
+  "data_coleta": "14/05/2026 as 09:02",
+  "saldo_geral": 11262.36,
+  "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 14080.8
+      "saldo": 6080.8
     },
     {
       "nome": "Santander",
-      "saldo": 717.32
+      "saldo": 4003.81
     },
     {
       "nome": "Banco do Nordeste",
@@ -24,5 +24,5 @@
       "saldo": 109.4
     }
   ],
-  "resultado_ytd": 77663.13
+  "resultado_ytd": 4001.89
 }
