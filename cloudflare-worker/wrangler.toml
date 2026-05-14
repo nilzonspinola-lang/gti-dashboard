@@ -12,15 +12,15 @@ compatibility_date = "2026-05-06"
 compatibility_flags = ["nodejs_compat"]
 
 # ── Cron Triggers ────────────────────────────────────────────────────────────
-# Monitora ao longo do dia — cobertura ampla de verificação
+# Limite do plano free: 5 crons por Worker
+# O Worker é apenas monitor — o Watchdog (GitHub Actions) já age sozinho
 [triggers]
 crons = [
-  "0 8 * * *",    # 05:00 BRT — verificação matinal
-  "0 10 * * *",   # 07:00 BRT
-  "0 12 * * *",   # 09:00 BRT
-  "0 14 * * *",   # 11:00 BRT
-  "0 17 * * *",   # 14:00 BRT — verificação pós-watchdog
-  "0 20 * * *",   # 17:00 BRT — verificação tarde
+  "0 9 * * *",    # 06:00 BRT — verificação matinal (antes do daily-update)
+  "0 11 * * *",   # 08:00 BRT — durante janela do daily-update
+  "0 14 * * *",   # 11:00 BRT — após daily-update
+  "0 17 * * *",   # 14:00 BRT — pós-watchdog 1ª rodada
+  "0 21 * * *",   # 18:00 BRT — verificação noturna final
 ]
 
 # ── Observability ─────────────────────────────────────────────────────────────
