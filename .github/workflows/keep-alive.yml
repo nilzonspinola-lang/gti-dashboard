@@ -36,5 +36,8 @@ jobs:
           echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
           git add .github/keep-alive.txt
           git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
-          git push
-          echo "✅ Keep-alive executado — schedules mantidos ativos."
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && echo "✅ Keep-alive executado — schedules mantidos ativos." && break
+            echo "⚠️ Push falhou (tentativa $i/3) — aguardando 5s..."
+            sleep 5
+          done
