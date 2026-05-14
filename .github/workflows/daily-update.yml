@@ -46,7 +46,7 @@ jobs:
       # SEMPRE roda, independente do resultado dos passos seguintes.
       # Garante commit diário para evitar suspensão de schedules pelo GitHub.
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 🔄 Keep-alive — commit diário para evitar suspensão de schedules
         run: |
@@ -64,7 +64,7 @@ jobs:
 
       # ── PASSO 1: Verificar se já rodou hoje ─────────────────────────────────
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
