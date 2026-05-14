@@ -1,7 +1,5 @@
 name: GTI Worker — Deploy Cloudflare Worker
 
-# Executa no push para main quando arquivos do Worker mudam
-# OU permite disparo manual via interface do GitHub Actions
 on:
   push:
     branches: [main]
@@ -33,71 +31,116 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ── Valida que os arquivos essenciais existem ─────────────────────────
-      - name: Verificar arquivos do Worker
+      # ── Pré-validação: testa CLOUDFLARE_API_TOKEN antes do deploy ─────────
+      # Se o token estiver inválido/expirado, falha aqui com mensagem clara.
+      - name: 🔑 Validar CLOUDFLARE_API_TOKEN
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "🔍 Validando CLOUDFLARE_API_TOKEN..."
+
+          RESP=$(curl -s -w "\n%{http_code}" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+
+          HTTP_CODE=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | head -1)
+
+          echo "📡 HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            STATUS=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('status','unknown'))" 2>/dev/null)
+            echo "✅ Token válido — status: $STATUS"
+
+            # Verifica expiração (se o campo existir)
+            EXPIRES=$(echo "$BODY" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+exp = d.get('result',{}).get('expires_on','')
+print(exp if exp else 'sem_expiracao')
+" 2>/dev/null)
+
+            if [ "$EXPIRES" = "sem_expiracao" ] || [ -z "$EXPIRES" ]; then
+              echo "♾️  Token sem expiração configurada — perfeito."
+            else
+              echo "⚠️  Token expira em: $EXPIRES"
+              echo "   → Configure 'No expiration' no Cloudflare Dashboard para evitar problemas futuros."
+              echo "   → dash.cloudflare.com → My Profile → API Tokens → editar token"
+            fi
+
+          elif [ "$HTTP_CODE" = "401" ]; then
+            echo "❌ ERRO: Token inválido ou expirado (HTTP 401)!"
+            echo ""
+            echo "🔧 Como corrigir:"
+            echo "   1. Acesse dash.cloudflare.com → My Profile → API Tokens"
+            echo "   2. Crie um novo token com permissão: Workers Scripts:Edit"
+            echo "   3. Defina Expiration como 'No expiration'"
+            echo "   4. Copie o token e atualize no GitHub:"
+            echo "      github.com → Settings → Secrets → CLOUDFLARE_API_TOKEN"
+            exit 1
+
+          else
+            echo "⚠️  Resposta inesperada (HTTP $HTTP_CODE) — prosseguindo com cautela."
+            echo "   Corpo: $BODY"
+          fi
+
+      # ── Valida arquivos do Worker ─────────────────────────────────────────
+      - name: 📁 Verificar arquivos do Worker
         run: |
           echo "📁 Conteúdo do diretório cloudflare-worker:"
           ls -la cloudflare-worker/
-          test -f cloudflare-worker/worker.js   || (echo "❌ worker.js não encontrado!"  && exit 1)
+          test -f cloudflare-worker/worker.js    || (echo "❌ worker.js não encontrado!"    && exit 1)
           test -f cloudflare-worker/wrangler.toml || (echo "❌ wrangler.toml não encontrado!" && exit 1)
           echo "✅ Arquivos do Worker OK"
 
       # ── Deploy via Wrangler CLI ───────────────────────────────────────────
-      - name: Deploy Cloudflare Worker
+      - name: 🚀 Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken:        ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId:       ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken:         ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: cloudflare-worker
           command: deploy
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # ── Configura secrets do Worker (somente quando disponíveis) ─────────
-      # Os secrets abaixo são opcionais no workflow — podem ser configurados
-      # manualmente via `wrangler secret put` ou pelo Cloudflare Dashboard.
-      # Para configurar via CI, adicione os secrets no GitHub e descomente.
-      #
-      # - name: Configurar GITHUB_TOKEN no Worker
-      #   uses: cloudflare/wrangler-action@v3
-      #   with:
-      #     apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      #     accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      #     workingDirectory: cloudflare-worker
-      #     command: secret put GITHUB_TOKEN
-      #   env:
-      #     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      # ── Verifica se o Worker está online após deploy ──────────────────────
-      - name: Verificar Worker online (smoke test)
+      # ── Smoke test: Worker online após deploy ─────────────────────────────
+      - name: 🔍 Smoke test — Worker online
         run: |
           echo "⏳ Aguardando propagação do deploy (15s)..."
           sleep 15
 
-          # Tenta obter o status do Worker (endpoint /status)
-          # Substitua pela URL do seu Worker quando souber o nome definitivo
           WORKER_URL="https://gti-dashboard-robo.nilzon-spinola.workers.dev/status"
           echo "🔍 Verificando: $WORKER_URL"
 
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$WORKER_URL" || echo "000")
+          HTTP_CODE=$(curl -s -o /tmp/worker_resp.json -w "%{http_code}" --max-time 15 "$WORKER_URL" || echo "000")
           echo "📡 HTTP Status: $HTTP_CODE"
 
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Worker online e respondendo corretamente."
+            echo "✅ Worker online e respondendo."
+            # Mostra resumo do status
+            python3 -c "
+import json
+try:
+    d = json.load(open('/tmp/worker_resp.json'))
+    print(f'   Dashboard : {d.get(\"dashboard\",\"?\")}'  )
+    print(f'   Última    : {d.get(\"ultimaData\",\"?\")}'  )
+    print(f'   Horário   : {d.get(\"horario\",\"?\")}'     )
+except: pass
+" 2>/dev/null
           elif [ "$HTTP_CODE" = "000" ]; then
-            echo "⚠️  Worker não respondeu (timeout). Verifique o Cloudflare Dashboard."
-            echo "   URL testada: $WORKER_URL"
+            echo "⚠️  Worker não respondeu (timeout) — verifique o Cloudflare Dashboard."
           else
-            echo "⚠️  Worker retornou HTTP $HTTP_CODE. Verifique os logs no Cloudflare Dashboard."
+            echo "⚠️  Worker retornou HTTP $HTTP_CODE."
           fi
 
       # ── Relatório final ───────────────────────────────────────────────────
-      - name: Relatório de deploy
+      - name: 📋 Relatório de deploy
         if: always()
         run: |
           echo "=================================================="
-          echo "  🤖 DEPLOY DO CLOUDFLARE WORKER — RELATÓRIO"
+          echo "  🚀 DEPLOY DO CLOUDFLARE WORKER — RELATÓRIO"
           echo "=================================================="
           echo "  Repositório : ${{ github.repository }}"
           echo "  Branch      : ${{ github.ref_name }}"
