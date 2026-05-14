@@ -32,19 +32,17 @@ jobs:
         uses: actions/checkout@v4
 
       # ── Pré-validação: testa CLOUDFLARE_API_TOKEN antes do deploy ─────────
-      # Se o token estiver inválido/expirado, falha aqui com mensagem clara.
       - name: 🔑 Validar CLOUDFLARE_API_TOKEN
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           echo "🔍 Validando CLOUDFLARE_API_TOKEN..."
 
-          RESP=$(curl -s -w "\n%{http_code}" \
+          BODY=$(curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             "https://api.cloudflare.com/client/v4/user/tokens/verify" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
-
-          HTTP_CODE=$(echo "$RESP" | tail -1)
-          BODY=$(echo "$RESP" | head -1)
 
           echo "📡 HTTP Status: $HTTP_CODE"
 
@@ -52,36 +50,26 @@ jobs:
             STATUS=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('status','unknown'))" 2>/dev/null)
             echo "✅ Token válido — status: $STATUS"
 
-            # Verifica expiração (se o campo existir)
-            EXPIRES=$(echo "$BODY" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-exp = d.get('result',{}).get('expires_on','')
-print(exp if exp else 'sem_expiracao')
-" 2>/dev/null)
+            EXPIRES=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); exp=d.get('result',{}).get('expires_on',''); print(exp if exp else 'sem_expiracao')" 2>/dev/null)
 
             if [ "$EXPIRES" = "sem_expiracao" ] || [ -z "$EXPIRES" ]; then
-              echo "♾️  Token sem expiração configurada — perfeito."
+              echo "♾️  Token sem expiração — perfeito."
             else
               echo "⚠️  Token expira em: $EXPIRES"
-              echo "   → Configure 'No expiration' no Cloudflare Dashboard para evitar problemas futuros."
-              echo "   → dash.cloudflare.com → My Profile → API Tokens → editar token"
+              echo "   → Acesse dash.cloudflare.com → My Profile → API Tokens"
+              echo "   → Edite o token e defina Expiration como 'No expiration'"
             fi
 
           elif [ "$HTTP_CODE" = "401" ]; then
             echo "❌ ERRO: Token inválido ou expirado (HTTP 401)!"
-            echo ""
             echo "🔧 Como corrigir:"
-            echo "   1. Acesse dash.cloudflare.com → My Profile → API Tokens"
-            echo "   2. Crie um novo token com permissão: Workers Scripts:Edit"
-            echo "   3. Defina Expiration como 'No expiration'"
-            echo "   4. Copie o token e atualize no GitHub:"
-            echo "      github.com → Settings → Secrets → CLOUDFLARE_API_TOKEN"
+            echo "   1. dash.cloudflare.com → My Profile → API Tokens"
+            echo "   2. Crie novo token: permissão Workers Scripts:Edit, Expiration: No expiration"
+            echo "   3. Atualize no GitHub: Settings → Secrets → CLOUDFLARE_API_TOKEN"
             exit 1
 
           else
             echo "⚠️  Resposta inesperada (HTTP $HTTP_CODE) — prosseguindo com cautela."
-            echo "   Corpo: $BODY"
           fi
 
       # ── Valida arquivos do Worker ─────────────────────────────────────────
@@ -89,7 +77,7 @@ print(exp if exp else 'sem_expiracao')
         run: |
           echo "📁 Conteúdo do diretório cloudflare-worker:"
           ls -la cloudflare-worker/
-          test -f cloudflare-worker/worker.js    || (echo "❌ worker.js não encontrado!"    && exit 1)
+          test -f cloudflare-worker/worker.js     || (echo "❌ worker.js não encontrado!"     && exit 1)
           test -f cloudflare-worker/wrangler.toml || (echo "❌ wrangler.toml não encontrado!" && exit 1)
           echo "✅ Arquivos do Worker OK"
 
@@ -119,18 +107,9 @@ print(exp if exp else 'sem_expiracao')
 
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ Worker online e respondendo."
-            # Mostra resumo do status
-            python3 -c "
-import json
-try:
-    d = json.load(open('/tmp/worker_resp.json'))
-    print(f'   Dashboard : {d.get(\"dashboard\",\"?\")}'  )
-    print(f'   Última    : {d.get(\"ultimaData\",\"?\")}'  )
-    print(f'   Horário   : {d.get(\"horario\",\"?\")}'     )
-except: pass
-" 2>/dev/null
+            python3 -c "import json; d=json.load(open('/tmp/worker_resp.json')); print('   Dashboard:', d.get('dashboard','?')); print('   Ultima:', d.get('ultimaData','?')); print('   Horario:', d.get('horario','?'))" 2>/dev/null || true
           elif [ "$HTTP_CODE" = "000" ]; then
-            echo "⚠️  Worker não respondeu (timeout) — verifique o Cloudflare Dashboard."
+            echo "⚠️  Worker não respondeu (timeout)."
           else
             echo "⚠️  Worker retornou HTTP $HTTP_CODE."
           fi
