@@ -93,6 +93,33 @@ jobs:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # ── Limpar secret GITHUB_TOKEN obsoleto do Worker ────────────────────
+      # O Worker v2 não usa mais GITHUB_TOKEN — dispatch é nativo no GitHub Actions.
+      # Este passo deleta o secret do Cloudflare Worker automaticamente (idempotente).
+      - name: 🗑️ Remover secret GITHUB_TOKEN obsoleto do Worker
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "🗑️  Removendo secret GITHUB_TOKEN obsoleto do Worker..."
+
+          HTTP_CODE=$(curl -s -o /tmp/del_resp.json -w "%{http_code}" \
+            -X DELETE \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/gti-dashboard-robo/secrets/GITHUB_TOKEN" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json")
+
+          echo "📡 HTTP: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Secret GITHUB_TOKEN removido com sucesso."
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "ℹ️  Secret GITHUB_TOKEN já não existe — nada a fazer."
+          else
+            echo "⚠️  Resposta inesperada ($HTTP_CODE) — não crítico, continuando."
+            cat /tmp/del_resp.json 2>/dev/null || true
+          fi
+
       # ── Smoke test: Worker online após deploy ─────────────────────────────
       - name: 🔍 Smoke test — Worker online
         run: |

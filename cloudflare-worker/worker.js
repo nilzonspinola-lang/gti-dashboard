@@ -15,11 +15,8 @@
  *   RESEND_API_KEY   — chave da API Resend (para alertas)
  *   ALERT_EMAIL_TO   — e-mail destino dos alertas
  *
- * NÃO PRECISA MAIS DE:
- *   GITHUB_TOKEN     — REMOVIDO. Dispatch agora é nativo no GitHub Actions.
- *
  * Crons configurados (wrangler.toml):
- *   08:00, 10:00, 12:00, 14:00, 17:00 UTC (05h/07h/09h/11h/14h BRT)
+ *   09:00, 11:00, 14:00, 17:00, 21:00 UTC (06h/08h/11h/14h/18h BRT)
  */
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -48,10 +45,6 @@ async function checkDashboard(env) {
       'Cache-Control':        'no-store',
       'User-Agent':           'GTI-Dashboard-Robot/2.0',
     };
-    // Adiciona token se disponível (melhora rate limit, mas não é obrigatório)
-    if (env.GITHUB_TOKEN) {
-      headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`;
-    }
     const res = await fetch(url, { headers });
     if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
     const envelope = await res.json();
