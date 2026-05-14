@@ -55,8 +55,12 @@ jobs:
           echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
           git add .github/keep-alive.txt
           git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
-          git push
-          echo "✅ Keep-alive commitado."
+          # Retry com pull --rebase para lidar com race condition de push concorrente
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && echo "✅ Keep-alive commitado." && break
+            echo "⚠️ Push falhou (tentativa $i/3) — aguardando 5s..."
+            sleep 5
+          done
 
       # ── PASSO 1: Verificar se já rodou hoje ─────────────────────────────────
       - name: Setup Node.js 22
