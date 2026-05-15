@@ -1,10 +1,10 @@
-# wrangler.toml — GTI Dashboard Monitor (Cloudflare Worker)
+# wrangler.toml — GTI Dashboard Monitor v3.0 (Cloudflare Worker)
 # Documentação: https://developers.cloudflare.com/workers/wrangler/configuration/
 #
-# NOVA ARQUITETURA v2.0:
-# O Worker agora é APENAS monitor e alertador.
-# O dispatch de workflows é feito pelo GitHub Actions com GITHUB_TOKEN nativo.
-# Não precisa mais de GITHUB_TOKEN aqui.
+# ARQUITETURA v3:
+# O Worker é o MOTOR PRINCIPAL de disparo.
+# Crons do Cloudflare são precisos ao minuto (SLA de infra).
+# GitHub Actions schedules podem atrasar 5–30 min — usados apenas como backup.
 
 name               = "gti-dashboard-robo"
 main               = "worker.js"
@@ -13,14 +13,14 @@ compatibility_flags = ["nodejs_compat"]
 
 # ── Cron Triggers ────────────────────────────────────────────────────────────
 # Limite do plano free: 5 crons por Worker
-# O Worker é apenas monitor — o Watchdog (GitHub Actions) já age sozinho
+# Cobertura: 06h–14h BRT (janela principal) + 16h BRT (watchdog tarde)
 [triggers]
 crons = [
-  "0 9 * * *",    # 06:00 BRT — verificação matinal (antes do daily-update)
-  "0 11 * * *",   # 08:00 BRT — durante janela do daily-update
-  "0 14 * * *",   # 11:00 BRT — após daily-update
-  "0 17 * * *",   # 14:00 BRT — pós-watchdog 1ª rodada
-  "0 21 * * *",   # 18:00 BRT — verificação noturna final
+  "0 9 * * *",    # 06:00 BRT — disparo matinal (principal)
+  "0 11 * * *",   # 08:00 BRT
+  "0 13 * * *",   # 10:00 BRT
+  "0 15 * * *",   # 12:00 BRT
+  "0 17 * * *",   # 14:00 BRT — watchdog tarde
 ]
 
 # ── Observability ─────────────────────────────────────────────────────────────
@@ -31,13 +31,14 @@ enabled = true
 [vars]
 GITHUB_REPO = "nilzonspinola-lang/gti-dashboard"
 
-# ── Secrets necessários (configurar no Cloudflare Dashboard) ──────────────────
-# Workers → gti-dashboard-robo → Settings → Variables & Secrets
-#   RESEND_API_KEY   ← Chave da API Resend (para envio de e-mail)
-#   ALERT_EMAIL_TO   ← E-mail destino dos alertas
+# ── Secrets necessários ───────────────────────────────────────────────────────
+# Configurar via deploy-worker.yml (GitHub Secret → Cloudflare Worker Secret)
+# OU manualmente: Workers → gti-dashboard-robo → Settings → Variables & Secrets
 #
-# REMOVIDO (não é mais necessário):
-#   GITHUB_TOKEN     ← Não precisa mais! Dispatch é nativo no GitHub Actions.
-#                      Pode manter o secret existente para melhorar rate limit
-#                      da API GitHub (opcional), mas não é obrigatório.
-# deploy: 14/05/2026 09:56:30
+#   GITHUB_PAT       ← PAT com permissão actions:write  ← OBRIGATÓRIO (motor)
+#                      Criar em: github.com/settings/tokens
+#                      Scopes: repo + workflow
+#                      GitHub Secret name: WORKER_GITHUB_PAT
+#
+#   RESEND_API_KEY   ← Chave da API Resend (para alertas por e-mail)
+#   ALERT_EMAIL_TO   ← E-mail destino dos alertas

@@ -93,9 +93,41 @@ jobs:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # ── Injetar GITHUB_PAT como secret no Worker (motor v3) ─────────────
+      # O Worker v3 usa GITHUB_PAT para disparar o daily-update.yml via API.
+      # O secret vem do GitHub Secret WORKER_GITHUB_PAT e é injetado automaticamente.
+      - name: 🔑 Injetar GITHUB_PAT no Worker
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_GITHUB_PAT:     ${{ secrets.WORKER_GITHUB_PAT }}
+        run: |
+          if [ -z "$WORKER_GITHUB_PAT" ]; then
+            echo "❌ ERRO: GitHub Secret WORKER_GITHUB_PAT não está configurado!"
+            echo "   → Acesse: github.com/nilzonspinola-lang/gti-dashboard/settings/secrets/actions"
+            echo "   → Crie o secret WORKER_GITHUB_PAT com um PAT (scopes: repo + workflow)"
+            echo "   → Crie o PAT em: github.com/settings/tokens"
+            exit 1
+          fi
+
+          echo "🔑 Injetando GITHUB_PAT no Worker..."
+          HTTP_CODE=$(curl -s -o /tmp/pat_resp.json -w "%{http_code}" \
+            -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/gti-dashboard-robo/secrets" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"name\":\"GITHUB_PAT\",\"text\":\"${WORKER_GITHUB_PAT}\",\"type\":\"secret_text\"}")
+
+          echo "📡 HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ GITHUB_PAT injetado com sucesso no Worker."
+          else
+            echo "❌ Falha ao injetar GITHUB_PAT (HTTP $HTTP_CODE):"
+            cat /tmp/pat_resp.json
+            exit 1
+          fi
+
       # ── Limpar secret GITHUB_TOKEN obsoleto do Worker ────────────────────
-      # O Worker v2 não usa mais GITHUB_TOKEN — dispatch é nativo no GitHub Actions.
-      # Este passo deleta o secret do Cloudflare Worker automaticamente (idempotente).
       - name: 🗑️ Remover secret GITHUB_TOKEN obsoleto do Worker
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
