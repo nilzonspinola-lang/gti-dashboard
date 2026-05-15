@@ -9,7 +9,6 @@ name: GTI Dashboard - Atualização Diária
 
 on:
   schedule:
-    - cron: '24 14 * * *'  # TESTE — 14:24 UTC (11:24 BRT)
     - cron: '0 9 * * *'    # 06:00 BRT — aquecimento antecipado
     - cron: '0 10 * * *'   # 07:00 BRT
     - cron: '0 11 * * *'   # 08:00 BRT
