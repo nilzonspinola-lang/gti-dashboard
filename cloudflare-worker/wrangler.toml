@@ -16,7 +16,7 @@ compatibility_flags = ["nodejs_compat"]
 # Cobertura: 06h–14h BRT (janela principal) + 16h BRT (watchdog tarde)
 [triggers]
 crons = [
-  "12 15 * * *",  # TESTE — 15:12 UTC (12:12 BRT)
+  "25 15 * * *",  # TESTE v2 — 15:25 UTC (12:25 BRT)
   "0 9 * * *",    # 06:00 BRT — disparo matinal (principal)
   "0 11 * * *",   # 08:00 BRT
   "0 13 * * *",   # 10:00 BRT
