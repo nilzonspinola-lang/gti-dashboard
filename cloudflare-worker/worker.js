@@ -29,7 +29,6 @@
  *   13:00 UTC → 10:00 BRT
  *   15:00 UTC → 12:00 BRT
  *   17:00 UTC → 14:00 BRT  (watchdog tarde)
- *   19:00 UTC → 16:00 BRT  (watchdog tarde)
  */
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -276,7 +275,7 @@ export default {
         <div class="arch">
           <h3>🏗️ Arquitetura v3 — Cloudflare como motor principal</h3>
           <ul>
-            <li>🔵 <b>Cloudflare crons</b> (precisos): 06h/08h/10h/12h/14h/16h BRT → disparam GitHub API diretamente</li>
+            <li>🔵 <b>Cloudflare crons</b> (precisos): 06h/08h/10h/12h/14h BRT → disparam GitHub API diretamente</li>
             <li>🟢 <b>daily-update.yml</b>: executa o script de coleta quando acionado</li>
             <li>🟡 <b>Self-heal</b>: em caso de falha, o Worker reage no próximo cron</li>
             <li>🔴 <b>GitHub schedules</b>: mantidos como backup (mesmo com atraso, eventual)</li>

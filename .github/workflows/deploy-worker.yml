@@ -121,7 +121,7 @@ jobs:
         run: |
           echo "⏳ Aguardando propagação (15s)..."
           sleep 15
-          WORKER_URL="https://gti-dashboard-robo.nilzonspinola-lang.workers.dev/status"
+          WORKER_URL="https://gti-dashboard-robo.nilzon-spinola.workers.dev/status"
           HTTP_CODE=$(curl -s -o /tmp/worker_resp.json -w "%{http_code}" --max-time 15 "$WORKER_URL" || echo "000")
           echo "📡 HTTP: $HTTP_CODE"
           if [ "$HTTP_CODE" = "200" ]; then
@@ -129,6 +129,7 @@ jobs:
             python3 -c "import json; d=json.load(open('/tmp/worker_resp.json')); print('   dashboard:', d.get('dashboard')); print('   githubPat:', d.get('githubPat')); print('   ultimaData:', d.get('ultimaData'))" 2>/dev/null || true
           else
             echo "⚠️  Worker HTTP $HTTP_CODE — verificar manualmente."
+            exit 1
           fi
 
       # ── 7. Relatório ───────────────────────────────────────────────────────
@@ -140,5 +141,5 @@ jobs:
           echo "  Repo    : ${{ github.repository }}"
           echo "  Commit  : ${{ github.sha }}"
           echo "  Hora    : $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
-          echo "  Worker  : https://gti-dashboard-robo.nilzonspinola-lang.workers.dev"
+          echo "  Worker  : https://gti-dashboard-robo.nilzon-spinola.workers.dev"
           echo "=================================================="

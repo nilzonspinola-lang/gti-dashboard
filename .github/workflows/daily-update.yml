@@ -149,24 +149,15 @@ jobs:
             sleep 5
           done
 
-      # ── PASSO 5: Self-heal — redispara em caso de falha ─────────────────────
-      # Se o script falhou, agenda nova tentativa em 10 minutos.
-      # Usa GITHUB_TOKEN nativo — zero dependência de PAT externo.
-      - name: 🔁 Self-heal — reagendar tentativa em caso de falha
+      # ── PASSO 5: Relatório de falha ──────────────────────────────────────────
+      # NOTA: O Worker Cloudflare (v3) é o motor de retry — no próximo cron
+      # (máx 2h) ele detecta o dashboard desatualizado e redispara.
+      # O watchdog.yml cobre 13h/15h/17h/19h BRT como camada adicional.
+      # Não usamos sleep+redispatch aqui pois seguraria um runner por 10 min.
+      - name: 📋 Relatório de falha
         if: failure() && steps.check.outputs.ja_atualizado == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          HOUR=$(TZ=America/Sao_Paulo date +'%H')
-          echo "⚠️ Atualização falhou. Hora atual BRT: $HOUR"
-
-          # Só redispara se ainda é cedo (antes das 15h BRT = 18h UTC)
-          # O watchdog assume o controle após isso
-          if [ "$HOUR" -lt 15 ]; then
-            echo "🔁 Redispatchando workflow para nova tentativa..."
-            sleep 600  # aguarda 10 minutos antes de tentar novamente
-            gh workflow run daily-update.yml --ref main
-            echo "✅ Nova tentativa agendada."
-          else
-            echo "ℹ️ Após 15h BRT — watchdog assumirá o controle."
-          fi
+          echo "❌ Atualização falhou em $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M BRT')"
+          echo "ℹ️  Próxima tentativa automática: Worker Cloudflare no próximo cron (máx 2h)"
+          echo "ℹ️  Watchdog: fiscaliza às 13h/15h/17h/19h BRT"
+          echo "🔗 Logs: https://github.com/${{ github.repository }}/actions"
