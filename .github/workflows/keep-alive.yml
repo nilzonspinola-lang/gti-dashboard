@@ -2,14 +2,14 @@ name: GTI Dashboard - Keep Alive 🔄
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CAMADA 0 — Keep-alive independente
-# Roda às 03:00 BRT, ANTES de qualquer outro workflow.
+# Roda às 02:00 UTC (23:00 BRT) — 3 horas ANTES do 1º cron do Worker (05:00 BRT).
 # Garante commit diário para evitar suspensão de schedules pelo GitHub.
 # O keep-alive também está embutido no daily-update.yml como redundância.
 # ══════════════════════════════════════════════════════════════════════════════
 
 on:
   schedule:
-    - cron: '0 6 * * *'    # 03:00 BRT — primeiro do dia
+    - cron: '0 2 * * *'    # 23:00 BRT (dia anterior) — 3h antes do 1º cron
   workflow_dispatch: {}
   push:
     branches: [main]

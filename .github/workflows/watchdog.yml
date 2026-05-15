@@ -2,7 +2,8 @@ name: GTI Dashboard - Watchdog 🤖
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CAMADA 3 — Watchdog autônomo
-# Fiscaliza o dashboard 4× por dia (após as janelas do daily-update).
+# Fiscaliza APÓS a janela principal (Worker crons 05h–07h BRT).
+# META: se às 09h ainda não atualizou → emergência imediata.
 # USA APENAS GITHUB_TOKEN NATIVO — zero dependência de PAT externo.
 # Se desatualizado: dispara daily-update, aguarda 8 min, re-verifica.
 # Envia alerta via Resend se ainda falhar após ação emergencial.
@@ -10,10 +11,10 @@ name: GTI Dashboard - Watchdog 🤖
 
 on:
   schedule:
-    - cron: '0 16 * * *'   # 13:00 BRT — após todas as 7 tentativas do daily-update
-    - cron: '0 18 * * *'   # 15:00 BRT — segunda fiscalização
-    - cron: '0 20 * * *'   # 17:00 BRT — terceira fiscalização (tarde)
-    - cron: '0 22 * * *'   # 19:00 BRT — fiscalização noturna final
+    - cron: '0 12 * * *'   # 09:00 BRT — 1ª fiscalização (2h após deadline)
+    - cron: '0 14 * * *'   # 11:00 BRT — 2ª fiscalização (antes do almoço)
+    - cron: '0 16 * * *'   # 13:00 BRT — 3ª fiscalização (tarde)
+    - cron: '0 20 * * *'   # 17:00 BRT — fiscalização final do dia
   workflow_dispatch: {}
 
 permissions:

@@ -2,20 +2,26 @@ name: GTI Dashboard - Atualização Diária
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CAMADA 1 — Workflow principal de atualização
-# Roda 6× por dia (07h–12h BRT) com concurrency=1 para evitar duplicatas.
-# Embutido: keep-alive diário (primeiro passo — SEMPRE roda).
-# Self-healing: em caso de falha, redispara a si mesmo após 10 min.
+# META: Dashboard pronto até 07:00 BRT (deadline acordado).
+#
+# MOTOR PRINCIPAL: Cloudflare Worker crons (precisos ao minuto)
+#   disparam este workflow via GitHub API às 05h/06h/07h/09h/11h BRT.
+#
+# BACKUP: GitHub Actions schedules abaixo — podem atrasar 5–30 min
+#   mas garantem cobertura mesmo se o Worker falhar.
+#
+# IDEMPOTENTE: se já atualizado hoje, pula silenciosamente (exceto force=true).
 # ══════════════════════════════════════════════════════════════════════════════
 
 on:
   schedule:
-    - cron: '0 9 * * *'    # 06:00 BRT — aquecimento antecipado
-    - cron: '0 10 * * *'   # 07:00 BRT
-    - cron: '0 11 * * *'   # 08:00 BRT
-    - cron: '0 12 * * *'   # 09:00 BRT
-    - cron: '0 13 * * *'   # 10:00 BRT
-    - cron: '0 14 * * *'   # 11:00 BRT
-    - cron: '0 15 * * *'   # 12:00 BRT
+    # Backup schedules (GitHub Actions — não-determinístico, pode atrasar)
+    # Espelham os crons do Worker para garantir cobertura dupla
+    - cron: '0 8 * * *'    # 05:00 BRT — backup do 1º cron do Worker
+    - cron: '0 9 * * *'    # 06:00 BRT — backup do 2º cron do Worker
+    - cron: '0 10 * * *'   # 07:00 BRT — deadline máximo
+    - cron: '0 12 * * *'   # 09:00 BRT — fallback manhã
+    - cron: '0 14 * * *'   # 11:00 BRT — última tentativa do turno
   workflow_dispatch:
     inputs:
       force:
@@ -30,11 +36,11 @@ on:
 
 permissions:
   contents: write
-  actions: write    # necessário para self-dispatch em caso de falha
+  actions: write
 
 concurrency:
   group: gti-dashboard-update
-  cancel-in-progress: false   # nunca cancela — deixa o anterior terminar
+  cancel-in-progress: false   # nunca cancela — fila, não descarta
 
 jobs:
   update:
@@ -55,7 +61,6 @@ jobs:
           echo "$(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M:%S')" > .github/keep-alive.txt
           git add .github/keep-alive.txt
           git commit --allow-empty -m "chore: keep-alive $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
-          # Retry com pull --rebase para lidar com race condition de push concorrente
           for i in 1 2 3; do
             git pull --rebase origin main && git push && echo "✅ Keep-alive commitado." && break
             echo "⚠️ Push falhou (tentativa $i/3) — aguardando 5s..."
@@ -86,19 +91,56 @@ jobs:
 
           if [ "$LAST" = "$TODAY" ] && [ "$FORCE" != "true" ]; then
             echo "ja_atualizado=true"  >> $GITHUB_OUTPUT
-            echo "✅ Já atualizado hoje ($TODAY) — pulando (use force=true para forçar)."
+            echo "✅ Já atualizado hoje ($TODAY) — pulando."
           else
             echo "ja_atualizado=false" >> $GITHUB_OUTPUT
             echo "🔄 Iniciando atualização (last=$LAST, hoje=$TODAY, force=$FORCE)."
           fi
 
-      # ── PASSO 2: Instalar dependências ──────────────────────────────────────
+      # ── PASSO 2: Validar credenciais Controlle antes de tentar ─────────────
+      # Detecta falha de credencial ANTES de gastar as 3 tentativas.
+      # O login Controlle usa email+password (REST API) — não usa refresh token.
+      # CONTROLLE_REFRESH_TOKEN é secret legado — não usado por este script.
+      - name: 🔑 Validar credenciais Controlle
+        if: steps.check.outputs.ja_atualizado == 'false'
+        env:
+          CONTROLLE_EMAIL:    ${{ secrets.CONTROLLE_EMAIL }}
+          CONTROLLE_PASSWORD: ${{ secrets.CONTROLLE_PASSWORD }}
+        run: |
+          if [ -z "$CONTROLLE_EMAIL" ] || [ -z "$CONTROLLE_PASSWORD" ]; then
+            echo "❌ FATAL: CONTROLLE_EMAIL ou CONTROLLE_PASSWORD não configurados!"
+            echo "🔧 Acesse: github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          echo "🔍 Testando login no Controlle Gateway..."
+          HTTP_CODE=$(curl -s -o /tmp/login_resp.json -w "%{http_code}" \
+            --max-time 15 \
+            -X POST "https://controlle-gateway-prod.controlle.com/company/login" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GTI-Dashboard-Robot/3.0" \
+            --data "{\"email\":\"${CONTROLLE_EMAIL}\",\"password\":\"${CONTROLLE_PASSWORD}\"}")
+          echo "📡 Login HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Credenciais válidas — login OK."
+          elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "❌ CREDENCIAIS INVÁLIDAS (HTTP $HTTP_CODE)!"
+            echo "🔧 Atualize CONTROLLE_EMAIL e/ou CONTROLLE_PASSWORD nos GitHub Secrets."
+            echo "🔗 https://github.com/${{ github.repository }}/settings/secrets/actions"
+            cat /tmp/login_resp.json 2>/dev/null | head -c 200 || true
+            exit 1
+          elif [ "$HTTP_CODE" = "000" ]; then
+            echo "⚠️ Timeout/sem conexão com Controlle Gateway — prosseguindo mesmo assim."
+          else
+            echo "⚠️ HTTP $HTTP_CODE inesperado — prosseguindo (pode ser falso negativo)."
+          fi
+
+      # ── PASSO 3: Instalar dependências ──────────────────────────────────────
       - name: 📦 Instalar dependências
         if: steps.check.outputs.ja_atualizado == 'false'
         working-directory: scripts
         run: npm ci --prefer-offline 2>/dev/null || npm install
 
-      # ── PASSO 3: Rodar atualização (3 tentativas com backoff) ───────────────
+      # ── PASSO 4: Rodar atualização (3 tentativas com backoff exponencial) ───
       - name: 🚀 Atualizar dashboard (3 tentativas)
         if: steps.check.outputs.ja_atualizado == 'false'
         id: run_update
@@ -117,7 +159,8 @@ jobs:
               SUCCESS=true
               break
             else
-              echo "⚠️ Tentativa $i falhou."
+              EXIT_CODE=$?
+              echo "⚠️ Tentativa $i falhou (exit $EXIT_CODE)."
               if [ $i -lt 3 ]; then
                 WAIT=$((i * 30))
                 echo "⏳ Aguardando ${WAIT}s antes da próxima tentativa..."
@@ -131,7 +174,7 @@ jobs:
             exit 1
           fi
 
-      # ── PASSO 4: Commit e push dos dados atualizados ─────────────────────────
+      # ── PASSO 5: Commit e push dos dados atualizados ─────────────────────────
       - name: 💾 Commit e push dos dados atualizados
         if: steps.check.outputs.ja_atualizado == 'false' && steps.run_update.outputs.success == 'true'
         run: |
@@ -139,7 +182,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html data.json
           if git diff --staged --quiet; then
-            echo "ℹ️ Nenhuma mudança detectada no index.html/data.json — pulando commit."
+            echo "ℹ️ Nenhuma mudança detectada — pulando commit."
             exit 0
           fi
           git commit -m "chore: atualiza saldos+dre+timestamp $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M')"
@@ -149,15 +192,14 @@ jobs:
             sleep 5
           done
 
-      # ── PASSO 5: Relatório de falha ──────────────────────────────────────────
-      # NOTA: O Worker Cloudflare (v3) é o motor de retry — no próximo cron
-      # (máx 2h) ele detecta o dashboard desatualizado e redispara.
-      # O watchdog.yml cobre 13h/15h/17h/19h BRT como camada adicional.
-      # Não usamos sleep+redispatch aqui pois seguraria um runner por 10 min.
+      # ── PASSO 6: Relatório de falha ──────────────────────────────────────────
+      # O Worker Cloudflare é o motor de retry — no próximo cron (máx 2h) vai
+      # detectar o dashboard desatualizado e redisparar automaticamente.
+      # O watchdog.yml fiscaliza às 09h/11h/13h BRT como última linha de defesa.
       - name: 📋 Relatório de falha
         if: failure() && steps.check.outputs.ja_atualizado == 'false'
         run: |
           echo "❌ Atualização falhou em $(TZ=America/Sao_Paulo date +'%d/%m/%Y %H:%M BRT')"
-          echo "ℹ️  Próxima tentativa automática: Worker Cloudflare no próximo cron (máx 2h)"
-          echo "ℹ️  Watchdog: fiscaliza às 13h/15h/17h/19h BRT"
+          echo "ℹ️  Próxima tentativa: Worker Cloudflare no próximo cron"
+          echo "ℹ️  Watchdog fiscaliza às 09h/11h/13h BRT"
           echo "🔗 Logs: https://github.com/${{ github.repository }}/actions"

@@ -24,11 +24,11 @@
  *     ALERT_EMAIL_TO   — e-mail destino dos alertas
  *
  * Crons configurados (wrangler.toml) — precisos ao minuto:
- *   09:00 UTC → 06:00 BRT  (disparo matinal)
- *   11:00 UTC → 08:00 BRT
- *   13:00 UTC → 10:00 BRT
- *   15:00 UTC → 12:00 BRT
- *   17:00 UTC → 14:00 BRT  (watchdog tarde)
+ *   08:00 UTC → 05:00 BRT  (1ª tentativa — madrugada)
+ *   09:00 UTC → 06:00 BRT  (2ª tentativa — matinal)
+ *   10:00 UTC → 07:00 BRT  (3ª tentativa — deadline máximo)
+ *   12:00 UTC → 09:00 BRT  (4ª tentativa — fallback manhã)
+ *   14:00 UTC → 11:00 BRT  (5ª tentativa — watchdog tarde)
  */
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -275,7 +275,8 @@ export default {
         <div class="arch">
           <h3>🏗️ Arquitetura v3 — Cloudflare como motor principal</h3>
           <ul>
-            <li>🔵 <b>Cloudflare crons</b> (precisos): 06h/08h/10h/12h/14h BRT → disparam GitHub API diretamente</li>
+            <li>🔵 <b>Cloudflare crons</b> (precisos): 05h/06h/07h/09h/11h BRT → disparam GitHub API diretamente</li>
+            <li>🎯 <b>Meta:</b> dashboard pronto até <b>07:00 BRT</b> — 3 tentativas antes do deadline</li>
             <li>🟢 <b>daily-update.yml</b>: executa o script de coleta quando acionado</li>
             <li>🟡 <b>Self-heal</b>: em caso de falha, o Worker reage no próximo cron</li>
             <li>🔴 <b>GitHub schedules</b>: mantidos como backup (mesmo com atraso, eventual)</li>
