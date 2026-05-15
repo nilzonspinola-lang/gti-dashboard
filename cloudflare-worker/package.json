@@ -1,0 +1,14 @@
+{
+  "name": "gti-dashboard-robo",
+  "version": "3.0.0",
+  "description": "GTI Dashboard Monitor Worker v3 — Cloudflare cron → GitHub API dispatch",
+  "private": true,
+  "main": "worker.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
