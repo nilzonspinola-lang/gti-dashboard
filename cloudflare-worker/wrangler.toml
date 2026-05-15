@@ -13,14 +13,21 @@ compatibility_flags = ["nodejs_compat"]
 
 # ── Cron Triggers ────────────────────────────────────────────────────────────
 # Limite do plano free: 5 crons por Worker
-# Cobertura: 06h–14h BRT (janela principal) + 16h BRT (watchdog tarde)
+# Cobertura: 06h–16h BRT (janela completa de trabalho)
+#
+# UTC→BRT: UTC-3
+#   09 UTC = 06 BRT   (abertura)
+#   11 UTC = 08 BRT
+#   13 UTC = 10 BRT
+#   15 UTC = 12 BRT
+#   17 UTC = 14 BRT   (watchdog tarde)
 [triggers]
 crons = [
-  "33 15 * * *",  # TESTE v3 — 15:33 UTC (12:33 BRT) — wrangler@4 fix
   "0 9 * * *",    # 06:00 BRT — disparo matinal (principal)
   "0 11 * * *",   # 08:00 BRT
   "0 13 * * *",   # 10:00 BRT
   "0 15 * * *",   # 12:00 BRT
+  "0 17 * * *",   # 14:00 BRT — watchdog tarde
 ]
 
 # ── Observability ─────────────────────────────────────────────────────────────
