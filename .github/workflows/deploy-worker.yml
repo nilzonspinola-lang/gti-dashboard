@@ -31,71 +31,48 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v5
 
-      # ── Pré-validação: testa CLOUDFLARE_API_TOKEN antes do deploy ─────────
+      # ── 1. Validar CLOUDFLARE_API_TOKEN ───────────────────────────────────
       - name: 🔑 Validar CLOUDFLARE_API_TOKEN
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           echo "🔍 Validando CLOUDFLARE_API_TOKEN..."
-
           BODY=$(curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             "https://api.cloudflare.com/client/v4/user/tokens/verify" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
-
           echo "📡 HTTP Status: $HTTP_CODE"
-
           if [ "$HTTP_CODE" = "200" ]; then
             STATUS=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('status','unknown'))" 2>/dev/null)
             echo "✅ Token válido — status: $STATUS"
-
-            EXPIRES=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); exp=d.get('result',{}).get('expires_on',''); print(exp if exp else 'sem_expiracao')" 2>/dev/null)
-
-            if [ "$EXPIRES" = "sem_expiracao" ] || [ -z "$EXPIRES" ]; then
-              echo "♾️  Token sem expiração — perfeito."
-            else
-              echo "⚠️  Token expira em: $EXPIRES"
-              echo "   → Acesse dash.cloudflare.com → My Profile → API Tokens"
-              echo "   → Edite o token e defina Expiration como 'No expiration'"
-            fi
-
           elif [ "$HTTP_CODE" = "401" ]; then
-            echo "❌ ERRO: Token inválido ou expirado (HTTP 401)!"
-            echo "🔧 Como corrigir:"
-            echo "   1. dash.cloudflare.com → My Profile → API Tokens"
-            echo "   2. Crie novo token: permissão Workers Scripts:Edit, Expiration: No expiration"
-            echo "   3. Atualize no GitHub: Settings → Secrets → CLOUDFLARE_API_TOKEN"
+            echo "❌ CLOUDFLARE_API_TOKEN inválido (HTTP 401) — atualize o secret."
             exit 1
-
           else
-            echo "⚠️  Resposta inesperada (HTTP $HTTP_CODE) — prosseguindo com cautela."
+            echo "⚠️  HTTP $HTTP_CODE — prosseguindo."
           fi
 
-      # ── Valida arquivos do Worker ─────────────────────────────────────────
+      # ── 2. Verificar arquivos ──────────────────────────────────────────────
       - name: 📁 Verificar arquivos do Worker
         run: |
-          echo "📁 Conteúdo do diretório cloudflare-worker:"
           ls -la cloudflare-worker/
           test -f cloudflare-worker/worker.js     || (echo "❌ worker.js não encontrado!"     && exit 1)
           test -f cloudflare-worker/wrangler.toml || (echo "❌ wrangler.toml não encontrado!" && exit 1)
-          echo "✅ Arquivos do Worker OK"
+          echo "✅ Arquivos OK"
 
-      # ── Deploy via Wrangler CLI ───────────────────────────────────────────
+      # ── 3. Deploy via Wrangler ─────────────────────────────────────────────
       - name: 🚀 Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken:         ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: cloudflare-worker
-          command: deploy
-        env:
-          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion:  '3.99.0'
+          command:          deploy
 
-      # ── Injetar GITHUB_PAT como secret no Worker (motor v3) ─────────────
-      # O Worker v3 usa GITHUB_PAT para disparar o daily-update.yml via API.
-      # O secret vem do GitHub Secret WORKER_GITHUB_PAT e é injetado automaticamente.
+      # ── 4. Injetar GITHUB_PAT no Worker (motor v3) ────────────────────────
+      # OBRIGATÓRIO: permite ao Worker disparar daily-update.yml via GitHub API
       - name: 🔑 Injetar GITHUB_PAT no Worker
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -103,13 +80,9 @@ jobs:
           WORKER_GITHUB_PAT:     ${{ secrets.WORKER_GITHUB_PAT }}
         run: |
           if [ -z "$WORKER_GITHUB_PAT" ]; then
-            echo "❌ ERRO: GitHub Secret WORKER_GITHUB_PAT não está configurado!"
-            echo "   → Acesse: github.com/nilzonspinola-lang/gti-dashboard/settings/secrets/actions"
-            echo "   → Crie o secret WORKER_GITHUB_PAT com um PAT (scopes: repo + workflow)"
-            echo "   → Crie o PAT em: github.com/settings/tokens"
+            echo "❌ WORKER_GITHUB_PAT não configurado — Worker não poderá disparar workflows!"
             exit 1
           fi
-
           echo "🔑 Injetando GITHUB_PAT no Worker..."
           HTTP_CODE=$(curl -s -o /tmp/pat_resp.json -w "%{http_code}" \
             -X PUT \
@@ -117,73 +90,53 @@ jobs:
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/json" \
             --data "{\"name\":\"GITHUB_PAT\",\"text\":\"${WORKER_GITHUB_PAT}\",\"type\":\"secret_text\"}")
-
           echo "📡 HTTP: $HTTP_CODE"
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ GITHUB_PAT injetado com sucesso no Worker."
+            echo "✅ GITHUB_PAT injetado com sucesso."
           else
             echo "❌ Falha ao injetar GITHUB_PAT (HTTP $HTTP_CODE):"
             cat /tmp/pat_resp.json
             exit 1
           fi
 
-      # ── Limpar secret GITHUB_TOKEN obsoleto do Worker ────────────────────
+      # ── 5. Limpar secret obsoleto ──────────────────────────────────────────
       - name: 🗑️ Remover secret GITHUB_TOKEN obsoleto do Worker
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo "🗑️  Removendo secret GITHUB_TOKEN obsoleto do Worker..."
-
           HTTP_CODE=$(curl -s -o /tmp/del_resp.json -w "%{http_code}" \
             -X DELETE \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/gti-dashboard-robo/secrets/GITHUB_TOKEN" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/json")
+          if [ "$HTTP_CODE" = "200" ]; then echo "🗑️ GITHUB_TOKEN removido."
+          elif [ "$HTTP_CODE" = "404" ]; then echo "ℹ️  GITHUB_TOKEN já não existe."
+          else echo "⚠️  HTTP $HTTP_CODE (não crítico)."; fi
 
-          echo "📡 HTTP: $HTTP_CODE"
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Secret GITHUB_TOKEN removido com sucesso."
-          elif [ "$HTTP_CODE" = "404" ]; then
-            echo "ℹ️  Secret GITHUB_TOKEN já não existe — nada a fazer."
-          else
-            echo "⚠️  Resposta inesperada ($HTTP_CODE) — não crítico, continuando."
-            cat /tmp/del_resp.json 2>/dev/null || true
-          fi
-
-      # ── Smoke test: Worker online após deploy ─────────────────────────────
+      # ── 6. Smoke test ──────────────────────────────────────────────────────
       - name: 🔍 Smoke test — Worker online
         run: |
-          echo "⏳ Aguardando propagação do deploy (15s)..."
+          echo "⏳ Aguardando propagação (15s)..."
           sleep 15
-
-          WORKER_URL="https://gti-dashboard-robo.nilzon-spinola.workers.dev/status"
-          echo "🔍 Verificando: $WORKER_URL"
-
+          WORKER_URL="https://gti-dashboard-robo.nilzonspinola-lang.workers.dev/status"
           HTTP_CODE=$(curl -s -o /tmp/worker_resp.json -w "%{http_code}" --max-time 15 "$WORKER_URL" || echo "000")
-          echo "📡 HTTP Status: $HTTP_CODE"
-
+          echo "📡 HTTP: $HTTP_CODE"
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Worker online e respondendo."
-            python3 -c "import json; d=json.load(open('/tmp/worker_resp.json')); print('   Dashboard:', d.get('dashboard','?')); print('   Ultima:', d.get('ultimaData','?')); print('   Horario:', d.get('horario','?'))" 2>/dev/null || true
-          elif [ "$HTTP_CODE" = "000" ]; then
-            echo "⚠️  Worker não respondeu (timeout)."
+            echo "✅ Worker online."
+            python3 -c "import json; d=json.load(open('/tmp/worker_resp.json')); print('   dashboard:', d.get('dashboard')); print('   githubPat:', d.get('githubPat')); print('   ultimaData:', d.get('ultimaData'))" 2>/dev/null || true
           else
-            echo "⚠️  Worker retornou HTTP $HTTP_CODE."
+            echo "⚠️  Worker HTTP $HTTP_CODE — verificar manualmente."
           fi
 
-      # ── Relatório final ───────────────────────────────────────────────────
+      # ── 7. Relatório ───────────────────────────────────────────────────────
       - name: 📋 Relatório de deploy
         if: always()
         run: |
           echo "=================================================="
-          echo "  🚀 DEPLOY DO CLOUDFLARE WORKER — RELATÓRIO"
-          echo "=================================================="
-          echo "  Repositório : ${{ github.repository }}"
-          echo "  Branch      : ${{ github.ref_name }}"
-          echo "  Commit      : ${{ github.sha }}"
-          echo "  Acionado por: ${{ github.actor }}"
-          echo "  Data/Hora   : $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
-          echo "  Worker URL  : https://gti-dashboard-robo.nilzon-spinola.workers.dev"
+          echo "  🚀 DEPLOY CLOUDFLARE WORKER v3 — RELATÓRIO"
+          echo "  Repo    : ${{ github.repository }}"
+          echo "  Commit  : ${{ github.sha }}"
+          echo "  Hora    : $(TZ=America/Sao_Paulo date +'%d/%m/%Y às %H:%M:%S')"
+          echo "  Worker  : https://gti-dashboard-robo.nilzonspinola-lang.workers.dev"
           echo "=================================================="
