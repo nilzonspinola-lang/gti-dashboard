@@ -61,15 +61,15 @@ jobs:
           test -f cloudflare-worker/wrangler.toml || (echo "❌ wrangler.toml não encontrado!" && exit 1)
           echo "✅ Arquivos OK"
 
-      # ── 3. Deploy via Wrangler ─────────────────────────────────────────────
+      # ── 3. Deploy via Wrangler CLI direto (sem action — evita bug de assets dir) ──
       - name: 🚀 Deploy Cloudflare Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken:         ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: cloudflare-worker
-          wranglerVersion:  '3.99.0'
-          command:          deploy
+        working-directory: cloudflare-worker
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install -g wrangler@3.99.0 --silent 2>&1 | tail -3
+          wrangler deploy
 
       # ── 4. Injetar GITHUB_PAT no Worker (motor v3) ────────────────────────
       # OBRIGATÓRIO: permite ao Worker disparar daily-update.yml via GitHub API
