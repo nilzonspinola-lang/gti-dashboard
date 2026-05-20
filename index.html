@@ -193,8 +193,140 @@
               }
             }
           }
+
+        // ── Aba Receitas ──────────────────────────────────────────────────────
+        } else if (t.includes('Receita Total')) {
+          // Preferência: faturamento real por NF; fallback: previsão do mês
+          const rv = d.faturamento_mes ?? d.receita_mes_previsao;
+          if (rv != null) {
+            val.textContent = fmtK(rv);
+            val.style.color = 'var(--gti-green)';
+            if (trend && trend.classList.contains('kpi-trend')) {
+              const mesNome = new Date().toLocaleString('pt-BR',{month:'long',year:'numeric'});
+              trend.textContent = d.faturamento_mes != null ? mesNome.charAt(0).toUpperCase()+mesNome.slice(1) : '⏳ Previsão ' + mesNome;
+              trend.className = 'kpi-trend ' + (d.faturamento_mes != null ? 'up' : 'neutral');
+            }
+          }
+
+        } else if (t.includes('Maior Cliente')) {
+          if (d.maior_cliente_valor != null) {
+            val.textContent = fmtK(d.maior_cliente_valor);
+            val.style.color = 'var(--gti-light)';
+            // Atualiza subtítulo com nome do cliente
+            if (trend && trend.classList.contains('kpi-trend') && d.maior_cliente_nome) {
+              trend.textContent = d.maior_cliente_nome;
+              trend.className = 'kpi-trend neutral';
+            }
+          }
+
+        } else if (t.includes('Ticket Médio')) {
+          if (d.ticket_medio != null) {
+            val.textContent = fmtK(d.ticket_medio);
+            if (trend && trend.classList.contains('kpi-trend') && d.clientes_faturados != null) {
+              trend.textContent = d.clientes_faturados + ' cliente' + (d.clientes_faturados !== 1 ? 's' : '') + ' faturado' + (d.clientes_faturados !== 1 ? 's' : '');
+              trend.className = 'kpi-trend neutral';
+            }
+          }
+
+        } else if (t.includes('NFs Emitidas')) {
+          if (d.nfs_emitidas != null) {
+            val.textContent = d.nfs_emitidas;
+            val.style.color = 'var(--teal)';
+            if (trend && trend.classList.contains('kpi-trend')) {
+              const mesNome = new Date().toLocaleString('pt-BR',{month:'long',year:'numeric'});
+              trend.textContent = mesNome.charAt(0).toUpperCase() + mesNome.slice(1);
+              trend.className = 'kpi-trend neutral';
+            }
+          }
+
+        // ── Aba Fluxo de Caixa ────────────────────────────────────────────────
+        } else if (t.includes('Entradas') && !t.includes('2025')) {
+          const ent = d.receita_mes_realizada ?? d.receita_mes_previsao;
+          if (ent != null) {
+            val.textContent = fmtK(ent);
+            val.style.color = 'var(--gti-green)';
+            if (trend && trend.classList.contains('kpi-trend')) {
+              trend.textContent = d.receita_mes_realizada != null ? 'Regime de Caixa' : '⏳ Previsão';
+              trend.className = 'kpi-trend ' + (d.receita_mes_realizada != null ? 'neutral' : 'neutral');
+            }
+          }
+
+        } else if (t.includes('Saídas') && !t.includes('2025')) {
+          const sai = d.despesa_mes_realizada ?? d.despesa_mes_previsao;
+          if (sai != null) {
+            val.textContent = fmtK(sai);
+            if (trend && trend.classList.contains('kpi-trend')) {
+              trend.textContent = d.despesa_mes_realizada != null ? 'Saídas realizadas' : '⏳ Previsão';
+            }
+          }
+
+        } else if (t.includes('Resultado Caixa')) {
+          const ent2 = d.receita_mes_realizada ?? d.receita_mes_previsao;
+          const sai2 = d.despesa_mes_realizada ?? d.despesa_mes_previsao;
+          if (ent2 != null && sai2 != null) {
+            const res = ent2 - sai2;
+            val.textContent = fmtK(res);
+            val.style.color = res >= 0 ? 'var(--gti-green)' : 'var(--red)';
+            if (trend && trend.classList.contains('kpi-trend')) {
+              trend.textContent = res >= 0 ? '▲ Caixa positivo' : '▼ Caixa negativo';
+              trend.className = 'kpi-trend ' + (res >= 0 ? 'up' : 'down');
+            }
+          }
         }
       });
+
+      // ── Gráficos dinâmicos ────────────────────────────────────────────────────
+      // chartRecBarras — top clientes do mês (Aba Receitas)
+      if (d.top_clientes && d.top_clientes.length > 0 && window.Chart) {
+        const existingRec = Chart.getChart('chartRecBarras');
+        if (existingRec) {
+          existingRec.data.labels   = d.top_clientes.map(c => c.nome.substring(0,18));
+          existingRec.data.datasets[0].data = d.top_clientes.map(c => c.valor);
+          existingRec.data.datasets[0].label = 'Receita ' + new Date().toLocaleString('pt-BR',{month:'short',year:'numeric'}).replace(' de ',' ');
+          existingRec.update('none');
+        }
+      }
+
+      // chartContasFluxo + chartFluxoDiario — saldo por mês (balanceByPeriod)
+      if (d.saldo_por_mes && d.saldo_por_mes.length > 0 && window.Chart) {
+        const MESES_ABREV = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+        const mesAtual = new Date().getMonth(); // 0-based
+
+        // Pega até 7 meses recentes para o gráfico de fluxo semanal/mensal
+        const periodoRecente = d.saldo_por_mes.slice(-7);
+        const labelsR  = periodoRecente.map(p => MESES_ABREV[(p.mes - 1) % 12]);
+        const valoresR = periodoRecente.map(p => p.saldo);
+        const minR = Math.min(...valoresR);
+        const maxR = Math.max(...valoresR);
+        const margem = (maxR - minR) * 0.15 || 1000;
+
+        ['chartContasFluxo','chartFluxoDiario'].forEach(cid => {
+          const ch = Chart.getChart(cid);
+          if (ch) {
+            ch.data.labels = labelsR;
+            ch.data.datasets[0].data = valoresR;
+            if (ch.options.scales?.y) {
+              ch.options.scales.y.min = Math.floor((minR - margem) / 1000) * 1000;
+              ch.options.scales.y.max = Math.ceil((maxR + margem) / 1000) * 1000;
+            }
+            ch.update('none');
+          }
+        });
+
+        // chartFluxoMensal — atualiza série "Saldo" com todos os 12 meses
+        const chFluxoMensal = Chart.getChart('chartFluxoMensal');
+        if (chFluxoMensal) {
+          const saldoSerie = Array(12).fill(null);
+          d.saldo_por_mes.forEach(p => {
+            const idx = p.mes - 1;
+            if (idx >= 0 && idx < 12) saldoSerie[idx] = p.saldo;
+          });
+          // Preenche meses futuros com null (não plotar)
+          for (let i = mesAtual + 1; i < 12; i++) saldoSerie[i] = null;
+          const saldoDs = chFluxoMensal.data.datasets.find(ds => ds.label === 'Saldo');
+          if (saldoDs) { saldoDs.data = saldoSerie; chFluxoMensal.update('none'); }
+        }
+      }
 
       // Saldos bancários — encontra pelo nome do banco
       const bankMap = {
