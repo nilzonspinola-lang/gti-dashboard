@@ -513,6 +513,39 @@ async function aplicarAtualizacoes(repoRoot, saldos, dre) {
     if (m) html = html.replace(/Margem: [\d,]+%/g, 'Margem: ' + m);
   }
 
+  // ---- Mês de referência dinâmico (ex: "Resumo executivo de Abril/2026") ----
+  const nomeMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                     'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mesAtualNome = nomeMeses[parseInt(ts.mm, 10) - 1];
+  html = html.replace(
+    /Resumo executivo de [A-Za-záéíóúâêîôûãõÇç]+\/\d{4}/g,
+    `Resumo executivo de ${mesAtualNome}/${ts.aaaa}`
+  );
+
+  // ---- KPI "Saldo Atual" na aba Fluxo de Caixa → saldoGeral real ----
+  // Label exato "Saldo Atual" (sem "(Realizado)") — exclusivo da aba Fluxo
+  html = html.replace(
+    /(kpi-label[^>]*>Saldo Atual<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
+    '$1' + fmtFull(saldos.saldoGeral)
+  );
+
+  // ---- KPI Santander (Negativo) — valor real e cor dinâmica ----
+  const saldoSantander = saldos['Santander'];
+  const corSantander   = saldoSantander >= 0 ? 'var(--gti-green)' : 'var(--red)';
+  const trendSantander = saldoSantander >= 0 ? 'up">▲ Saldo positivo' : 'down">▼ Atenção necessária';
+  html = html.replace(
+    /(kpi-label[^>]*>Santander \(Negativo\)<\/div>\s*<div class="kpi-value" style="color:)[^"]*(">[^<]*)/g,
+    `$1${corSantander}$2`
+  );
+  html = html.replace(
+    /(kpi-label[^>]*>Santander \(Negativo\)<\/div>\s*<div class="kpi-value"[^>]*>)[^<]*/g,
+    '$1' + fmtFull(saldoSantander)
+  );
+  html = html.replace(
+    /(kpi-label[^>]*>Santander \(Negativo\)<\/div>\s*<div class="kpi-value"[^>]*>[^<]*<\/div>\s*<div class="kpi-trend )[^>]*(>[^<]*<\/div>)/g,
+    `$1${trendSantander}</div>`
+  );
+
   // ---- Timestamps ----
   html = html.replace(/Atualizado \d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/g, 'Atualizado ' + ts.display);
   html = html.replace(/Posição: \d{2}\/\d{2}\/\d{4}(?: às \d{2}:\d{2})?/g, 'Posição: '   + ts.display);

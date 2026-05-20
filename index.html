@@ -155,17 +155,44 @@
 
       // KPI cards — encontra pelo texto do label
       document.querySelectorAll('.kpi-label').forEach(lbl => {
-        const val = lbl.nextElementSibling;
+        const val   = lbl.nextElementSibling;
+        const trend = val?.nextElementSibling;
         if (!val || !val.classList.contains('kpi-value')) return;
         const t = lbl.textContent.trim();
+
         if (t.includes('Saldo Atual') || t.includes('Saldo Realizado')) {
-          val.textContent = fmtK(d.saldo_geral);
+          val.textContent = fmtDec(d.saldo_geral);
           val.style.color = d.saldo_geral >= 0 ? 'var(--teal)' : 'var(--red)';
+
         } else if (t.includes('Receita 2') || t.includes('Receita Bruta')) {
-          val.textContent = fmtK(d.receita_ytd);
+          if (d.receita_ytd != null) val.textContent = fmtK(d.receita_ytd);
+
+        } else if (t.includes('Resultado 2026') || t.includes('Resultado Líquido')) {
+          if (d.resultado_ytd != null) {
+            val.textContent = fmtK(d.resultado_ytd);
+            val.style.color = d.resultado_ytd >= 0 ? 'var(--gti-green)' : 'var(--red)';
+            // Atualiza margem no kpi-trend
+            if (trend && trend.classList.contains('kpi-trend') && d.receita_ytd) {
+              const m = (Math.abs(d.resultado_ytd) / d.receita_ytd * 100).toFixed(1).replace('.', ',');
+              if (trend.textContent.includes('Margem')) trend.textContent = 'Margem: ' + m + '%';
+            }
+          }
+
         } else if (t.includes('Santander') && t.includes('Negativo')) {
           const s = d.contas?.find(c => c.nome === 'Santander');
-          if (s) { val.textContent = fmtK(s.saldo); val.style.color = 'var(--red)'; }
+          if (s) {
+            val.textContent = fmtDec(s.saldo);
+            val.style.color = s.saldo >= 0 ? 'var(--gti-green)' : 'var(--red)';
+            if (trend && trend.classList.contains('kpi-trend')) {
+              if (s.saldo >= 0) {
+                trend.textContent = '▲ Saldo positivo';
+                trend.className = 'kpi-trend up';
+              } else {
+                trend.textContent = '▼ Atenção necessária';
+                trend.className = 'kpi-trend down';
+              }
+            }
+          }
         }
       });
 
