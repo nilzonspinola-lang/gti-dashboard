@@ -1,11 +1,11 @@
 {
-  "data_coleta": "20/05/2026 as 05:00",
-  "saldo_geral": 13664.32,
+  "data_coleta": "21/05/2026 as 05:01",
+  "saldo_geral": 12328.86,
   "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 10571.44
+      "saldo": 9235.98
     },
     {
       "nome": "Santander",
@@ -24,5 +24,9 @@
       "saldo": 109.4
     }
   ],
-  "resultado_ytd": 4001.89
+  "resultado_ytd": 4001.89,
+  "receita_mes_previsao": 75688.82,
+  "despesa_mes_previsao": 0,
+  "receita_mes_realizada": 0,
+  "despesa_mes_realizada": 0
 }
