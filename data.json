@@ -1,15 +1,15 @@
 {
-  "data_coleta": "22/05/2026 as 05:00",
-  "saldo_geral": 12328.86,
+  "data_coleta": "23/05/2026 as 05:00",
+  "saldo_geral": 26597.57,
   "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 9235.98
+      "saldo": 24999.25
     },
     {
       "nome": "Santander",
-      "saldo": 1915.13
+      "saldo": 420.57
     },
     {
       "nome": "Banco do Nordeste",
@@ -26,7 +26,7 @@
   ],
   "resultado_ytd": 4001.89,
   "receita_mes_previsao": 75688.82,
-  "despesa_mes_previsao": 0,
+  "despesa_mes_previsao": -12825.36,
   "receita_mes_realizada": 0,
-  "despesa_mes_realizada": 0
+  "despesa_mes_realizada": -12825.36
 }
