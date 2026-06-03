@@ -1,5 +1,5 @@
 {
-  "data_coleta": "02/06/2026 as 05:00",
+  "data_coleta": "03/06/2026 as 05:00",
   "saldo_geral": 24789.67,
   "receita_ytd": 252693.03,
   "contas": [
@@ -25,7 +25,7 @@
     }
   ],
   "resultado_ytd": 4001.89,
-  "receita_mes_previsao": 11932.7,
+  "receita_mes_previsao": 61827.04,
   "despesa_mes_previsao": 0,
   "receita_mes_realizada": 0,
   "despesa_mes_realizada": 0
