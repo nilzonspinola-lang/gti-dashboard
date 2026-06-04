@@ -1,19 +1,19 @@
 {
-  "data_coleta": "03/06/2026 as 05:00",
-  "saldo_geral": 24789.67,
+  "data_coleta": "04/06/2026 as 05:00",
+  "saldo_geral": 17474.91,
   "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 18867.12
+      "saldo": 12867.12
     },
     {
       "nome": "Santander",
-      "saldo": 2644.8
+      "saldo": 3644.8
     },
     {
       "nome": "Banco do Nordeste",
-      "saldo": 2649.63
+      "saldo": 334.87
     },
     {
       "nome": "Caixa Econômica Federal",
