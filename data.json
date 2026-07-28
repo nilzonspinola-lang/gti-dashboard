@@ -1,11 +1,11 @@
 {
-  "data_coleta": "27/07/2026 as 08:11",
-  "saldo_geral": 14821.66,
+  "data_coleta": "28/07/2026 as 07:26",
+  "saldo_geral": 28586.1,
   "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 10213.87
+      "saldo": 21678.31
     },
     {
       "nome": "Santander",
@@ -13,7 +13,7 @@
     },
     {
       "nome": "Banco do Nordeste",
-      "saldo": 334.87
+      "saldo": 2634.87
     },
     {
       "nome": "Caixa Econômica Federal",
@@ -25,8 +25,8 @@
     }
   ],
   "resultado_ytd": 4001.89,
-  "receita_mes_previsao": 31866.58,
-  "despesa_mes_previsao": -12965.19,
-  "receita_mes_realizada": 0,
-  "despesa_mes_realizada": -12965.19
+  "receita_mes_previsao": 35491.54,
+  "despesa_mes_previsao": -34692.29,
+  "receita_mes_realizada": 35491.54,
+  "despesa_mes_realizada": -34692.29
 }
