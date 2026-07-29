@@ -1,11 +1,11 @@
 {
-  "data_coleta": "28/07/2026 as 07:26",
-  "saldo_geral": 28586.1,
+  "data_coleta": "29/07/2026 as 07:33",
+  "saldo_geral": 29334.08,
   "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 21678.31
+      "saldo": 22426.29
     },
     {
       "nome": "Santander",
@@ -25,8 +25,8 @@
     }
   ],
   "resultado_ytd": 4001.89,
-  "receita_mes_previsao": 35491.54,
-  "despesa_mes_previsao": -34692.29,
-  "receita_mes_realizada": 35491.54,
-  "despesa_mes_realizada": -34692.29
+  "receita_mes_previsao": 37914.23,
+  "despesa_mes_previsao": -36367,
+  "receita_mes_realizada": 37914.23,
+  "despesa_mes_realizada": -36367
 }
