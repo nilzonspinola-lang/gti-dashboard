@@ -1,5 +1,5 @@
 {
-  "data_coleta": "31/07/2026 as 07:29",
+  "data_coleta": "01/08/2026 as 06:51",
   "saldo_geral": 29334.08,
   "receita_ytd": 252693.03,
   "contas": [
@@ -25,8 +25,8 @@
     }
   ],
   "resultado_ytd": 4001.89,
-  "receita_mes_previsao": 37914.23,
-  "despesa_mes_previsao": -36367,
-  "receita_mes_realizada": 37914.23,
-  "despesa_mes_realizada": -36367
+  "receita_mes_previsao": 3669.1,
+  "despesa_mes_previsao": 0,
+  "receita_mes_realizada": 0,
+  "despesa_mes_realizada": 0
 }
