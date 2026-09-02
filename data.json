@@ -1,27 +1,27 @@
 {
-  "data_coleta": "01/09/2026 as 09:54",
-  "saldo_geral": 29334.08,
+  "data_coleta": "02/09/2026 as 09:25",
+  "saldo_geral": -79083.19,
   "receita_ytd": 252693.03,
   "contas": [
     {
       "nome": "Itaú Unibanco",
-      "saldo": 22426.29
+      "saldo": 0
     },
     {
       "nome": "Santander",
-      "saldo": 3644.8
+      "saldo": 0
     },
     {
       "nome": "Banco do Nordeste",
-      "saldo": 2634.87
+      "saldo": 0
     },
     {
       "nome": "Caixa Econômica Federal",
-      "saldo": 518.72
+      "saldo": 0
     },
     {
       "nome": "Sicoob",
-      "saldo": 109.4
+      "saldo": 0
     }
   ],
   "resultado_ytd": 4001.89,
